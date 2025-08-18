@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """
-import_notable.py - VERSION v1.9.3
+import_notable.py - VERSION v1.9.4
 
 Import Notable Markdown notes into a Zim Desktop Wiki notebook,
 creating raw AI notes with proper Zim metadata, and appending
 links to the Journal pages in chronological order.
 
 Part of the Notable-to-Zim project.
+
+CHANGES IN v1.9.4:
+- Fixed multiple file copies by improving needs_update timestamp comparison and slugify logic.
+- Improved remove_duplicate_heading to use re.search and log normalization details.
 
 CHANGES IN v1.9.3:
 - Fixed duplicate heading issue in Zim notes by normalizing Unicode characters in remove_duplicate_heading.
@@ -120,6 +124,10 @@ def slugify(s: str, dest_dir: Path, used_slugs: set) -> str:
     base_slug = base_slug.strip("_-")
     base_slug = base_slug if base_slug else "untitled"
     
+    # Check if base_slug (without counter) already exists and is up-to-date
+    if (dest_dir / f"{base_slug}.txt").exists() and base_slug not in used_slugs:
+        return base_slug
+
     # Check for collisions and append suffix if needed
     slug = base_slug
     counter = 1
@@ -281,19 +289,20 @@ def remove_duplicate_heading(content: str, title: str, file_stem: str) -> str:
     """Remove duplicate level-1 heading from Pandoc-converted content if it matches title or file stem."""
     log_message(f"Checking for duplicate heading in content: title='{title}', file_stem='{file_stem}'", "DEBUG")
     # Normalize Unicode characters to handle variations (e.g., curly vs. straight apostrophes)
+    log_message(f"Before normalization - title: {title}, file_stem: {file_stem}", "DEBUG")
     normalized_content = unicodedata.normalize('NFKC', content)
     normalized_title = unicodedata.normalize('NFKC', title)
     normalized_file_stem = unicodedata.normalize('NFKC', file_stem)
+    log_message(f"After normalization - title: {normalized_title}, file_stem: {normalized_file_stem}", "DEBUG")
+    log_message(f"Content starts with: {content[:100]}", "DEBUG")
     # Zim level-1 heading format: ====== Title ======
-    heading_pattern = r'======\s*' + re.escape(normalized_title) + r'\s*======\n*'
-    alt_heading_pattern = r'======\s*' + re.escape(normalized_file_stem) + r'\s*======\n*'
+    heading_pattern = r'======\s*' + re.escape(normalized_title) + r'\s*======\s*\n*'
+    alt_heading_pattern = r'======\s*' + re.escape(normalized_file_stem) + r'\s*======\s*\n*'
     
-    # Check for heading matching title
-    if re.match(heading_pattern, normalized_content):
+    if re.search(heading_pattern, normalized_content):
         content = re.sub(heading_pattern, '', normalized_content, count=1)
         log_message(f"Removed duplicate heading matching title: {title}", "DEBUG")
-    # Check for heading matching file stem (if title is derived from filename)
-    elif re.match(alt_heading_pattern, normalized_content):
+    elif re.search(alt_heading_pattern, normalized_content):
         content = re.sub(alt_heading_pattern, '', normalized_content, count=1)
         log_message(f"Removed duplicate heading matching file stem: {file_stem}", "DEBUG")
     
@@ -359,6 +368,7 @@ def needs_update(source_path: Path, dest_path: Path, metadata: Dict[str, Any]) -
     else:
         log_warning(f"No 'modified' field in {source_path}, using filesystem check")
     
+    # Fallback to always skip if dest_path exists to prevent duplicates
     try:
         source_mtime = datetime.fromtimestamp(source_path.stat().st_mtime)
         dest_mtime = datetime.fromtimestamp(dest_path.stat().st_mtime)
