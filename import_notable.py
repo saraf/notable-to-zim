@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-import_notable.py - VERSION v1.8
+import_notable.py - VERSION v1.9
 
 Import Notable Markdown notes into a Zim Desktop Wiki notebook,
 creating raw AI notes with proper Zim metadata, and appending
 links to the Journal pages in chronological order.
 
-CHANGES IN v1.8:
-- Removed duplicate level-1 heading in raw_ai_notes output after Pandoc conversion if it matches the YAML title or file stem.
-- Added debug logging for heading removal process.
+CHANGES IN v1.9:
+- Added --log-level command-line argument to control console log verbosity (DEBUG, INFO, WARNING, ERROR).
+- Modified log_message to filter console output based on log level, while writing all messages to log file.
 - No new dependencies required.
 """
 
@@ -33,9 +33,16 @@ class ImportStatus(Enum):
     SKIPPED = "SKIPPED"
     ERROR = "ERROR"
 
+class LogLevel(Enum):
+    DEBUG = 1
+    INFO = 2
+    WARNING = 3
+    ERROR = 4
+
 # ------------------------ Global Variables ------------------------
 # Global log file reference for error logging
 _log_file = None
+_log_level = LogLevel.INFO  # Default log level for console
 
 # ------------------------ Logging Functions ------------------------
 def set_log_file(log_file: Optional[Path]) -> None:
@@ -43,15 +50,29 @@ def set_log_file(log_file: Optional[Path]) -> None:
     global _log_file
     _log_file = log_file
 
+def set_log_level(level: str) -> None:
+    """Set the global log level for console output."""
+    global _log_level
+    try:
+        _log_level = LogLevel[level.upper()]
+    except KeyError:
+        raise ValueError(f"Invalid log level: {level}. Choose from DEBUG, INFO, WARNING, ERROR.")
+
 def log_message(message: str, level: str = "INFO") -> None:
-    """Log message to both console and log file if available."""
+    """Log message to console (if level >= _log_level) and log file (if available)."""
     timestamp = datetime.now().isoformat()
     formatted_message = f"[{level}] {message}"
     
-    # Always print to console
-    print(formatted_message)
+    # Print to console if level is at or above the configured log level
+    try:
+        message_level = LogLevel[level.upper()]
+        if message_level.value >= _log_level.value:
+            print(formatted_message)
+    except KeyError:
+        # Fallback: print if level is unrecognized to avoid silent failures
+        print(formatted_message)
     
-    # Also log to file if available
+    # Always log to file if available
     if _log_file:
         log_entry = f"{timestamp} {formatted_message}\n"
         try:
@@ -460,6 +481,9 @@ def main():
                            help="Root directory of Zim notebook")
         parser.add_argument("--log-file", required=False, 
                            help="Optional log file for import details")
+        parser.add_argument("--log-level", default="INFO",
+                           choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                           help="Console log level (default: INFO)")
         parser.add_argument("--dry-run", action="store_true", 
                            help="Show what would be imported without making changes")
         args = parser.parse_args()
@@ -467,6 +491,9 @@ def main():
         # Resolve and validate paths
         notable_dir = Path(args.notable_dir).expanduser().resolve()
         zim_dir = Path(args.zim_dir).expanduser().resolve()
+        
+        # Set log level
+        set_log_level(args.log_level)
         
         if not validate_paths(notable_dir, zim_dir):
             sys.exit(1)
