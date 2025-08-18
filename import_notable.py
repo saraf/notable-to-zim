@@ -1,14 +1,30 @@
 #!/usr/bin/env python3
 """
-import_notable.py - VERSION v1.9
+import_notable.py - VERSION v1.9.2
 
 Import Notable Markdown notes into a Zim Desktop Wiki notebook,
 creating raw AI notes with proper Zim metadata, and appending
 links to the Journal pages in chronological order.
 
+Part of the Notable-to-Zim project.
+
+CHANGES IN v1.9.2:
+- Strengthened temp_dir check in main() to avoid UnboundLocalError by checking if temp_dir is defined.
+- No new dependencies required.
+
+CHANGES IN v1.9.1:
+- Fixed UnboundLocalError for temp_dir when --help triggers early exit.
+- Updated project name to Notable-to-Zim in docstring.
+- No new dependencies required.
+
 CHANGES IN v1.9:
 - Added --log-level command-line argument to control console log verbosity (DEBUG, INFO, WARNING, ERROR).
 - Modified log_message to filter console output based on log level, while writing all messages to log file.
+- No new dependencies required.
+
+CHANGES IN v1.8:
+- Removed duplicate level-1 heading in raw_ai_notes output after Pandoc conversion if it matches the YAML title or file stem.
+- Added debug logging for heading removal process.
 - No new dependencies required.
 """
 
@@ -488,6 +504,9 @@ def main():
                            help="Show what would be imported without making changes")
         args = parser.parse_args()
 
+        # Initialize temp_dir to None to avoid UnboundLocalError
+        temp_dir = None
+
         # Resolve and validate paths
         notable_dir = Path(args.notable_dir).expanduser().resolve()
         zim_dir = Path(args.zim_dir).expanduser().resolve()
@@ -518,8 +537,6 @@ def main():
         journal_root = zim_dir / "Journal"
         raw_store = zim_dir / "raw_ai_notes"
         
-        # Create temporary directory for pandoc operations
-        temp_dir = None
         if not args.dry_run:
             temp_dir = Path(tempfile.mkdtemp(prefix='zim_import_'))
             print(f"Using temporary directory: {temp_dir}")
@@ -609,19 +626,21 @@ def main():
             append_file(log_file, summary)
             print(f"\nDetailed log written to: {log_file}")
         
+    except SystemExit:
+        # Exit cleanly on --help or invalid arguments
+        raise
     except Exception as e:
         log_error(f"Unexpected error during import process: {e}")
         sys.exit(1)
     
     finally:
         # Clean up temporary directory
-        if temp_dir and temp_dir.exists():
+        if 'temp_dir' in locals() and temp_dir and temp_dir.exists():
             try:
                 shutil.rmtree(temp_dir)
                 print(f"Cleaned up temporary directory: {temp_dir}")
             except Exception as e:
                 log_warning(f"Could not clean up temporary directory {temp_dir}: {e}")
-
 
 if __name__ == "__main__":
     main()
