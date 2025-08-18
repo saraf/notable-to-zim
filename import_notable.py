@@ -505,7 +505,7 @@ def main():
                 slug = slugify(title)
                 note_file = raw_store / f"{slug}.txt"
                 if note_file.exists():
-                    print(f"  Would skip (already exists): {note_file.name}")
+                    log_message(f"  Would skip (already exists): {note_file.name}")
                     skip_count += 1
                 else:
                     print(f"  Would import as: {note_file.name}")
@@ -515,6 +515,7 @@ def main():
                 if result == ImportStatus.SUCCESS:
                     success_count += 1
                 elif result == ImportStatus.SKIPPED:
+                    log_message(f"import_md_file returned  SKIPPED (already exists): {md_file.name}")
                     skip_count += 1
                 elif result == ImportStatus.ERROR:
                     error_count += 1    
