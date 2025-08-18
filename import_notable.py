@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """
-import_notable.py - VERSION v1.3
+import_notable.py - VERSION v1.4
 
 Import Notable Markdown notes into a Zim Desktop Wiki notebook,
 creating raw AI notes with proper Zim metadata, and appending
 links to the Journal pages in chronological order.
 
-CHANGES IN v1.3:
-- Updated parse_timestamp to handle datetime objects in YAML front matter.
-- Improved logging to include raw timestamp values for debugging.
-- Fixed 'object of type datetime.datetime has no len()' error.
+CHANGES IN v1.4:
+- Handle title collisions by using source filename as fallback.
+- Modified slugify to append numeric suffix for duplicate titles.
+- Updated logging to note when filename is used due to collision.
+- Ensured unique output filenames for files with identical YAML titles.
 """
 
 # ------------------------ Imports ------------------------
@@ -70,14 +71,22 @@ def log_warning(message: str) -> None:
 
 # ------------------------ Helper Functions ------------------------
 
-def slugify(s: str) -> str:
-    """Convert string to a valid filename slug."""
-    s = s.lower()
-    s = re.sub(r"[^\w\s-]", "", s)
-    s = re.sub(r"\s+", "_", s)
-    s = s.strip("_-")
-    # Ensure it's not empty
-    return s if s else "untitled"
+def slugify(s: str, dest_dir: Path, used_slugs: set) -> str:
+    """Convert string to a valid filename slug, handling duplicates."""
+    base_slug = s.lower()
+    base_slug = re.sub(r"[^\w\s-]", "", base_slug)
+    base_slug = re.sub(r"\s+", "_", base_slug)
+    base_slug = base_slug.strip("_-")
+    base_slug = base_slug if base_slug else "untitled"
+    
+    # Check for collisions and append suffix if needed
+    slug = base_slug
+    counter = 1
+    while (dest_dir / f"{slug}.txt").exists() or slug in used_slugs:
+        slug = f"{base_slug}_{counter}"
+        counter += 1
+    used_slugs.add(slug)
+    return slug
 
 def ensure_dir(path: Path) -> None:
     """Create directory if it doesn't exist."""
@@ -294,7 +303,8 @@ def needs_update(source_path: Path, dest_path: Path, metadata: Dict[str, Any]) -
 # ------------------------ Main Import Logic ------------------------
 
 def import_md_file(md_path: Path, raw_store: Path, journal_root: Path, 
-                   log_file: Optional[Path] = None, temp_dir: Optional[Path] = None) -> ImportStatus:
+                   log_file: Optional[Path] = None, temp_dir: Optional[Path] = None, 
+                   used_slugs: Optional[set] = None) -> ImportStatus:
     """Import a single markdown file into Zim wiki."""
     try:
         # Read and parse YAML front matter
@@ -315,8 +325,14 @@ def import_md_file(md_path: Path, raw_store: Path, journal_root: Path,
             tags = [tags]  # Handle single tag as string
         elif not isinstance(tags, list):
             tags = []  # Fallback for invalid tags
-        slug = slugify(title)
+        
+        # Generate unique slug, considering existing files
+        slug = slugify(title, raw_store, used_slugs)
         note_file = raw_store / f"{slug}.txt"
+        if title != md_path.stem:
+            log_message(f"Using YAML title '{title}' for {md_path}", "INFO")
+        else:
+            log_message(f"Using filename '{md_path.stem}' as title for {md_path} due to missing YAML title or collision", "INFO")
         
         # Check if update is needed
         is_new_file = not note_file.exists()
@@ -414,13 +430,13 @@ def main():
     try:
         parser = argparse.ArgumentParser(description="Import Notable Markdown notes into Zim Wiki")
         parser.add_argument("--notable-dir", required=True, 
-                        help="Directory containing Notable .md notes")
+                           help="Directory containing Notable .md notes")
         parser.add_argument("--zim-dir", required=True, 
-                        help="Root directory of Zim notebook")
+                           help="Root directory of Zim notebook")
         parser.add_argument("--log-file", required=False, 
-                        help="Optional log file for import details")
+                           help="Optional log file for import details")
         parser.add_argument("--dry-run", action="store_true", 
-                        help="Show what would be imported without making changes")
+                           help="Show what would be imported without making changes")
         args = parser.parse_args()
 
         # Resolve and validate paths
@@ -494,6 +510,7 @@ def main():
         success_count = 0
         skip_count = 0
         error_count = 0
+        used_slugs = set()  # Track used slugs to avoid collisions
         
         for i, md_file in enumerate(md_files, 1):
             print(f"\n[{i}/{len(md_files)}] Processing: {md_file.name}")
@@ -502,20 +519,19 @@ def main():
                 content = read_file(md_file)
                 _, metadata = parse_yaml_front_matter(content)
                 title = metadata.get('title', md_file.stem)
-                slug = slugify(title)
+                slug = slugify(title, raw_store, used_slugs)
                 note_file = raw_store / f"{slug}.txt"
                 if note_file.exists():
-                    log_message(f"  Would skip (already exists): {note_file.name}")
+                    print(f"  Would skip (already exists): {note_file.name}")
                     skip_count += 1
                 else:
                     print(f"  Would import as: {note_file.name}")
                     success_count += 1
             else:
-                result = import_md_file(md_file, raw_store, journal_root, log_file, temp_dir)
+                result = import_md_file(md_file, raw_store, journal_root, log_file, temp_dir, used_slugs)
                 if result == ImportStatus.SUCCESS:
                     success_count += 1
                 elif result == ImportStatus.SKIPPED:
-                    log_message(f"import_md_file returned  SKIPPED (already exists): {md_file.name}")
                     skip_count += 1
                 elif result == ImportStatus.ERROR:
                     error_count += 1    
