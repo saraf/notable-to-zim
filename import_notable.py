@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """
-import_notable.py - VERSION v1.9.4
+import_notable.py - VERSION v1.9.5
 
 Import Notable Markdown notes into a Zim Desktop Wiki notebook,
 creating raw AI notes with proper Zim metadata, and appending
 links to the Journal pages in chronological order.
 
 Part of the Notable-to-Zim project.
+
+CHANGES IN v1.9.5:
+- Fixed persistent duplicate heading issue by improving Unicode normalization and regex in remove_duplicate_heading.
+- Added debug logging for regex patterns.
 
 CHANGES IN v1.9.4:
 - Fixed multiple file copies by improving needs_update timestamp comparison and slugify logic.
@@ -295,16 +299,21 @@ def remove_duplicate_heading(content: str, title: str, file_stem: str) -> str:
     normalized_file_stem = unicodedata.normalize('NFKC', file_stem)
     log_message(f"After normalization - title: {normalized_title}, file_stem: {normalized_file_stem}", "DEBUG")
     log_message(f"Content starts with: {content[:100]}", "DEBUG")
-    # Zim level-1 heading format: ====== Title ======
+    # Zim level-1 heading format: ====== Title ====== with flexible whitespace and newlines
     heading_pattern = r'======\s*' + re.escape(normalized_title) + r'\s*======\s*\n*'
     alt_heading_pattern = r'======\s*' + re.escape(normalized_file_stem) + r'\s*======\s*\n*'
+    log_message(f"Heading pattern: {heading_pattern}", "DEBUG")
+    log_message(f"Alt heading pattern: {alt_heading_pattern}", "DEBUG")
     
-    if re.search(heading_pattern, normalized_content):
-        content = re.sub(heading_pattern, '', normalized_content, count=1)
+    # Search and replace in normalized content
+    if re.search(heading_pattern, normalized_content, re.IGNORECASE):
+        content = re.sub(heading_pattern, '', normalized_content, count=1, flags=re.IGNORECASE)
         log_message(f"Removed duplicate heading matching title: {title}", "DEBUG")
-    elif re.search(alt_heading_pattern, normalized_content):
-        content = re.sub(alt_heading_pattern, '', normalized_content, count=1)
+    elif re.search(alt_heading_pattern, normalized_content, re.IGNORECASE):
+        content = re.sub(alt_heading_pattern, '', normalized_content, count=1, flags=re.IGNORECASE)
         log_message(f"Removed duplicate heading matching file stem: {file_stem}", "DEBUG")
+    else:
+        log_message("No duplicate heading found", "DEBUG")
     
     return content.strip()
 
