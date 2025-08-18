@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 """
-import_notable.py - VERSION v1.9.5
+import_notable.py - VERSION v1.9.6
 
 Import Notable Markdown notes into a Zim Desktop Wiki notebook,
 creating raw AI notes with proper Zim metadata, and appending
 links to the Journal pages in chronological order.
 
 Part of the Notable-to-Zim project.
+
+CHANGES IN v1.9.6:
+- Fixed persistent duplicate heading by explicitly handling curly apostrophes in remove_duplicate_heading.
+- Added path normalization for MSYS2 filenames with spaces/apostrophes in Pandoc call.
+- Restored slugify base_slug check to prevent unnecessary suffixes (regression in earlier v1.9.6 draft).
+- Enhanced debug logging for Pandoc input/output and heading removal.
 
 CHANGES IN v1.9.5:
 - Fixed persistent duplicate heading issue by improving Unicode normalization and regex in remove_duplicate_heading.
@@ -49,7 +55,7 @@ import subprocess
 import sys
 import tempfile
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Optional, Tuple, List, Dict, Any
 from enum import Enum
 import yaml
@@ -90,7 +96,7 @@ def set_log_level(level: str) -> None:
 def log_message(message: str, level: str = "INFO") -> None:
     """Log message to console (if level >= _log_level) and log file (if available)."""
     timestamp = datetime.now().isoformat()
-    formatted_message = f"[{level}] {message}"
+    formatted_message = f"[{level}] {timestamp} {message}"
     
     # Print to console if level is at or above the configured log level
     try:
@@ -131,7 +137,7 @@ def slugify(s: str, dest_dir: Path, used_slugs: set) -> str:
     # Check if base_slug (without counter) already exists and is up-to-date
     if (dest_dir / f"{base_slug}.txt").exists() and base_slug not in used_slugs:
         return base_slug
-
+    
     # Check for collisions and append suffix if needed
     slug = base_slug
     counter = 1
@@ -205,8 +211,9 @@ def check_pandoc() -> bool:
 
 def run_pandoc(input_md: Path, output_txt: Path) -> bool:
     """Convert markdown to Zim wiki format using Pandoc."""
-    log_message(f"Running pandoc: input={input_md}, output={output_txt}", "DEBUG")
-    cmd = ["pandoc", "-f", "markdown", "-t", "zimwiki", "-o", str(output_txt), str(input_md)]
+    output_txt_str = str(PureWindowsPath(output_txt).as_posix())
+    log_message(f"Running pandoc: input={input_md}, output={output_txt_str}", "DEBUG")
+    cmd = ["pandoc", "-f", "markdown", "-t", "zimwiki", "-o", output_txt_str, str(input_md)]
     try:
         result = subprocess.run(cmd, check=True, capture_output=True, text=True)
         log_message(f"Pandoc succeeded for {input_md}", "DEBUG")
@@ -228,7 +235,7 @@ def zim_header(title: str) -> str:
         "Content-Type: text/x-zim-wiki\n"
         "Wiki-Format: zim 0.6\n"
         f"Creation-Date: {ts}\n"
-        f"====== {title} ======\n\n\n\n"
+        f"====== {title} ======\n\n"
     )
     return header
 
@@ -294,11 +301,11 @@ def remove_duplicate_heading(content: str, title: str, file_stem: str) -> str:
     log_message(f"Checking for duplicate heading in content: title='{title}', file_stem='{file_stem}'", "DEBUG")
     # Normalize Unicode characters to handle variations (e.g., curly vs. straight apostrophes)
     log_message(f"Before normalization - title: {title}, file_stem: {file_stem}", "DEBUG")
-    normalized_content = unicodedata.normalize('NFKC', content)
-    normalized_title = unicodedata.normalize('NFKC', title)
-    normalized_file_stem = unicodedata.normalize('NFKC', file_stem)
+    normalized_content = unicodedata.normalize('NFKC', content).replace('’', "'")
+    normalized_title = unicodedata.normalize('NFKC', title).replace('’', "'")
+    normalized_file_stem = unicodedata.normalize('NFKC', file_stem).replace('’', "'")
     log_message(f"After normalization - title: {normalized_title}, file_stem: {normalized_file_stem}", "DEBUG")
-    log_message(f"Content starts with: {content[:100]}", "DEBUG")
+    log_message(f"Content starts with: {normalized_content[:100]}", "DEBUG")
     # Zim level-1 heading format: ====== Title ====== with flexible whitespace and newlines
     heading_pattern = r'======\s*' + re.escape(normalized_title) + r'\s*======\s*\n*'
     alt_heading_pattern = r'======\s*' + re.escape(normalized_file_stem) + r'\s*======\s*\n*'
