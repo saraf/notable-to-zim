@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """
-import_notable.py - VERSION v1.2
+import_notable.py - VERSION v1.3
 
 Import Notable Markdown notes into a Zim Desktop Wiki notebook,
 creating raw AI notes with proper Zim metadata, and appending
 links to the Journal pages in chronological order.
 
-CHANGES IN v1.2:
-- Improved parse_timestamp to use dateutil.parser for robust ISO 8601 parsing.
-- Made timestamps offset-naive in needs_update to avoid comparison errors.
-- Added debug logging for timestamp parsing failures.
-- Added python-dateutil dependency.
+CHANGES IN v1.3:
+- Updated parse_timestamp to handle datetime objects in YAML front matter.
+- Improved logging to include raw timestamp values for debugging.
+- Fixed 'object of type datetime.datetime has no len()' error.
 """
 
 # ------------------------ Imports ------------------------
@@ -26,7 +25,7 @@ from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Any
 from enum import Enum
 import yaml
-from dateutil import parser as dateutil_parser  # Added for robust timestamp parsing
+from dateutil import parser as dateutil_parser
 
 # ------------------------ Constants ------------------------
 class ImportStatus(Enum):
@@ -224,24 +223,32 @@ def create_zim_note(note_path: Path, title: str, content: str, tags: List[str]) 
         return True
     return False
 
-def parse_timestamp(timestamp: str) -> Optional[datetime]:
-    """Parse ISO 8601 timestamp from YAML, return None if invalid."""
-    try:
-        parsed = dateutil_parser.isoparse(timestamp)
-        # Convert to offset-naive for consistency
-        return parsed.replace(tzinfo=None)
-    except (ValueError, TypeError) as e:
-        log_warning(f"Failed to parse timestamp '{timestamp}': {e}")
-        return None
+def parse_timestamp(timestamp: Any) -> Optional[datetime]:
+    """Parse ISO 8601 timestamp or datetime object from YAML, return None if invalid."""
+    if isinstance(timestamp, datetime):
+        # Already a datetime object, make it offset-naive
+        return timestamp.replace(tzinfo=None)
+    if isinstance(timestamp, str):
+        try:
+            parsed = dateutil_parser.isoparse(timestamp)
+            # Convert to offset-naive for consistency
+            return parsed.replace(tzinfo=None)
+        except (ValueError, TypeError) as e:
+            log_warning(f"Failed to parse timestamp string '{timestamp}': {e}")
+            return None
+    log_warning(f"Invalid timestamp type '{type(timestamp)}' for value: {timestamp}")
+    return None
 
 def get_file_date(md_path: Path, metadata: Dict[str, Any]) -> datetime:
     """Get the creation date from YAML metadata, fall back to filesystem."""
     created = metadata.get('created')
-    if created:
+    if created is not None:
         parsed = parse_timestamp(created)
         if parsed:
             return parsed
-    log_warning(f"No valid 'created' timestamp in {md_path}, using filesystem creation time")
+        log_warning(f"No valid 'created' timestamp '{created}' in {md_path}, using filesystem creation time")
+    else:
+        log_warning(f"No 'created' field in {md_path}, using filesystem creation time")
     try:
         if hasattr(os.stat_result, 'st_birthtime'):
             # macOS
@@ -263,7 +270,7 @@ def needs_update(source_path: Path, dest_path: Path, metadata: Dict[str, Any]) -
         return True
     
     modified = metadata.get('modified')
-    if modified:
+    if modified is not None:
         parsed = parse_timestamp(modified)
         if parsed:
             try:
@@ -272,8 +279,10 @@ def needs_update(source_path: Path, dest_path: Path, metadata: Dict[str, Any]) -
             except Exception as e:
                 log_warning(f"Could not compare file times for {source_path}: {e}")
                 return True
+        log_warning(f"No valid 'modified' timestamp '{modified}' in {source_path}, using filesystem check")
+    else:
+        log_warning(f"No 'modified' field in {source_path}, using filesystem check")
     
-    log_warning(f"No valid 'modified' timestamp in {source_path}, using filesystem check")
     try:
         source_mtime = datetime.fromtimestamp(source_path.stat().st_mtime)
         dest_mtime = datetime.fromtimestamp(dest_path.stat().st_mtime)
