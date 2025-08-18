@@ -17,19 +17,61 @@ BASELINE FEATURES (v1.0):
 - Progress reporting for large imports.
 - Dry-run mode for previewing imports.
 - Input validation and Pandoc availability check.
-
-This is our agreed baseline version for future development.
 """
 
+# ------------------------ Imports ------------------------
 import argparse
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from enum import Enum
+
+# ------------------------ Constants ------------------------
+class ImportStatus(Enum):
+    SUCCESS = "SUCCESS"
+    SKIPPED = "SKIPPED"
+    ERROR = "ERROR"
+
+# ------------------------ Global Variables ------------------------
+# Global log file reference for error logging
+_log_file = None
+
+# ------------------------ Logging Functions ------------------------
+def set_log_file(log_file: Optional[Path]) -> None:
+    """Set the global log file for error logging."""
+    global _log_file
+    _log_file = log_file
+
+def log_message(message: str, level: str = "INFO") -> None:
+    """Log message to both console and log file if available."""
+    timestamp = datetime.now().isoformat()
+    formatted_message = f"[{level}] {message}"
+    
+    # Always print to console
+    print(formatted_message)
+    
+    # Also log to file if available
+    if _log_file:
+        log_entry = f"{timestamp} {formatted_message}\n"
+        try:
+            append_file(_log_file, log_entry)
+        except Exception:
+            # If logging fails, don't cause the main process to fail
+            pass
+
+def log_error(message: str) -> None:
+    """Log error message."""
+    log_message(message, "ERROR")
+
+def log_warning(message: str) -> None:
+    """Log warning message."""
+    log_message(message, "WARNING")
 
 # ------------------------ Helper Functions ------------------------
 
@@ -59,10 +101,10 @@ def read_file(path: Path) -> str:
     try:
         return path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
-        print(f"[WARNING] Unicode decode error for {path}, trying with latin-1")
+        log_warning(f"Unicode decode error for {path}, trying with latin-1")
         return path.read_text(encoding="latin-1")
     except Exception as e:
-        print(f"[ERROR] Could not read file {path}: {e}")
+        log_error(f"Could not read file {path}: {e}")
         return ""
 
 def write_file(path: Path, content: str) -> bool:
@@ -72,7 +114,7 @@ def write_file(path: Path, content: str) -> bool:
         path.write_text(content, encoding="utf-8")
         return True
     except Exception as e:
-        print(f"[ERROR] Could not write file {path}: {e}")
+        log_error(f"Could not write file {path}: {e}")
         return False
 
 def append_file(path: Path, content: str) -> bool:
@@ -83,6 +125,7 @@ def append_file(path: Path, content: str) -> bool:
             f.write(content)
         return True
     except Exception as e:
+        # Don't use log_error here to avoid infinite recursion when logging fails
         print(f"[ERROR] Could not append to file {path}: {e}")
         return False
 
@@ -104,12 +147,12 @@ def run_pandoc(input_md: Path, output_txt: Path) -> bool:
         result = subprocess.run(cmd, check=True, capture_output=True, text=True)
         return True
     except subprocess.CalledProcessError as e:
-        print(f"[ERROR] Pandoc failed for {input_md}: {e}")
+        log_error(f"Pandoc failed for {input_md}: {e}")
         if e.stderr:
-            print(f"[ERROR] Pandoc stderr: {e.stderr}")
+            log_error(f"Pandoc stderr: {e.stderr}")
         return False
     except FileNotFoundError:
-        print("[ERROR] Pandoc not found. Please install Pandoc and ensure it's in your PATH.")
+        log_error("Pandoc not found. Please install Pandoc and ensure it's in your PATH.")
         return False
 
 def zim_header(title: str) -> str:
@@ -197,14 +240,18 @@ def get_file_date(md_path: Path) -> datetime:
 # ------------------------ Main Import Logic ------------------------
 
 def import_md_file(md_path: Path, raw_store: Path, journal_root: Path, 
-                   log_file: Optional[Path] = None) -> bool:
-    """Import a single markdown file into Zim wiki."""
+                   log_file: Optional[Path] = None, temp_dir: Optional[Path] = None) -> bool:
+    """Import a single markdown file into Zim wiki.
+    This function handles the conversion, creation of Zim notes,
+    and appending links to the journal.
+    
+    """
     try:
         # Read and strip YAML front matter
         content = strip_yaml_front_matter(read_file(md_path))
         if not content.strip():
-            print(f"[WARNING] Empty content after processing: {md_path}")
-            return False
+            log_warning(f"Empty content after processing: {md_path}")
+            return ImportStatus.ERROR
         
         # Slugify filename
         slug = slugify(md_path.stem)
@@ -213,31 +260,41 @@ def import_md_file(md_path: Path, raw_store: Path, journal_root: Path,
         # Idempotent check
         if note_file.exists():
             print(f"Skipping already imported note: {note_file.name}")
-            return True
+            return ImportStatus.SKIPPED
         
-        # Create temporary markdown file for pandoc
-        temp_md = md_path.parent / f"temp_{md_path.name}"
-        if not write_file(temp_md, content):
-            return False
-        
+        # Create temporary markdown file for pandoc in system temp directory
+        temp_md = None
         try:
+            # Create temporary file in the specified temp directory or system default
+            temp_fd, temp_path = tempfile.mkstemp(suffix='.md', prefix='zim_import_', 
+                                                 dir=temp_dir)
+            temp_md = Path(temp_path)
+            
+            # Close the file descriptor and write content
+            os.close(temp_fd)
+            if not write_file(temp_md, content):
+                return ImportStatus.ERROR
+
             # Convert Markdown to Zim format
             if not run_pandoc(temp_md, note_file):
-                return False
-            
+                return ImportStatus.ERROR
+
             # Read the converted content
             content_plain = read_file(note_file)
             if not content_plain:
-                return False
-            
+                return ImportStatus.ERROR
+
             # Create final Zim note with proper header
             if not create_zim_note(note_file, md_path.stem, content_plain):
-                return False
+                return ImportStatus.ERROR
             
         finally:
-            # Clean up temp file
-            if temp_md.exists():
-                temp_md.unlink()
+            # Clean up temp file - always attempt cleanup
+            if temp_md and temp_md.exists():
+                try:
+                    temp_md.unlink()
+                except Exception as e:
+                    log_warning(f"Could not delete temporary file {temp_md}: {e}")
         
         # Determine journal page by file creation date
         created_ts = get_file_date(md_path)
@@ -248,35 +305,36 @@ def import_md_file(md_path: Path, raw_store: Path, journal_root: Path,
         
         # Append link to journal
         if not append_journal_link(journal_page, md_path.stem, f"raw_ai_notes:{slug}"):
-            print(f"[WARNING] Failed to add journal link for {md_path}")
+            log_warning(f"Failed to add journal link for {md_path}")
         
         # Log if requested
         if log_file:
-            log_entry = f"{datetime.now().isoformat()}: Imported {md_path} -> {note_file}\n"
+            log_entry = f"SUCCESS: Imported {md_path} -> {note_file}\n"
             append_file(log_file, log_entry)
         
-        return True
+        return ImportStatus.SUCCESS
+
         
     except Exception as e:
-        print(f"[ERROR] Failed to import {md_path}: {e}")
-        return False
+        log_error(f"Failed to import {md_path}: {e}")
+        return ImportStatus.ERROR
 
 def validate_paths(notable_dir: Path, zim_dir: Path) -> bool:
     """Validate that the specified paths exist and are accessible."""
     if not notable_dir.exists():
-        print(f"[ERROR] Notable directory does not exist: {notable_dir}")
+        log_error(f"Notable directory does not exist: {notable_dir}")
         return False
     
     if not notable_dir.is_dir():
-        print(f"[ERROR] Notable path is not a directory: {notable_dir}")
+        log_error(f"Notable path is not a directory: {notable_dir}")
         return False
     
     if not zim_dir.exists():
-        print(f"[ERROR] Zim directory does not exist: {zim_dir}")
+        log_error(f"Zim directory does not exist: {zim_dir}")
         return False
     
     if not zim_dir.is_dir():
-        print(f"[ERROR] Zim path is not a directory: {zim_dir}")
+        log_error(f"Zim path is not a directory: {zim_dir}")
         return False
     
     return True
@@ -284,116 +342,139 @@ def validate_paths(notable_dir: Path, zim_dir: Path) -> bool:
 # ------------------------ Main ------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Import Notable Markdown notes into Zim Wiki")
-    parser.add_argument("--notable-dir", required=True, 
-                       help="Directory containing Notable .md notes")
-    parser.add_argument("--zim-dir", required=True, 
-                       help="Root directory of Zim notebook")
-    parser.add_argument("--log-file", required=False, 
-                       help="Optional log file for import details")
-    parser.add_argument("--dry-run", action="store_true", 
-                       help="Show what would be imported without making changes")
-    args = parser.parse_args()
+    try:
+        parser = argparse.ArgumentParser(description="Import Notable Markdown notes into Zim Wiki")
+        parser.add_argument("--notable-dir", required=True, 
+                        help="Directory containing Notable .md notes")
+        parser.add_argument("--zim-dir", required=True, 
+                        help="Root directory of Zim notebook")
+        parser.add_argument("--log-file", required=False, 
+                        help="Optional log file for import details")
+        parser.add_argument("--dry-run", action="store_true", 
+                        help="Show what would be imported without making changes")
+        args = parser.parse_args()
 
-    # Resolve and validate paths
-    notable_dir = Path(args.notable_dir).expanduser().resolve()
-    zim_dir = Path(args.zim_dir).expanduser().resolve()
-    
-    if not validate_paths(notable_dir, zim_dir):
-        sys.exit(1)
-    
-    # Check for Pandoc
-    if not check_pandoc():
-        print("[ERROR] Pandoc is required but not found in PATH.")
-        print("Please install Pandoc from https://pandoc.org/")
-        sys.exit(1)
-    
-    journal_root = zim_dir / "Journal"
-    raw_store = zim_dir / "raw_ai_notes"
-    
-    print(f"Notable directory: {notable_dir}")
-    print(f"Zim directory: {zim_dir}")
-    print(f"Raw AI notes will be stored in: {raw_store}")
-    print(f"Journal links will be added to: {journal_root}")
-    
-    if args.dry_run:
-        print("\n[DRY RUN MODE] - No files will be modified")
-    
-    # Create necessary directories
-    if not args.dry_run:
-        ensure_dir(raw_store)
-        ensure_dir(journal_root)
+        # Resolve and validate paths
+        notable_dir = Path(args.notable_dir).expanduser().resolve()
+        zim_dir = Path(args.zim_dir).expanduser().resolve()
         
-        # Create raw_ai_notes root page for Zim index
-        raw_root_page = zim_dir / "raw_ai_notes.txt"
-        if not raw_root_page.exists():
-            if write_file(raw_root_page, zim_header("Raw AI Notes")):
-                print(f"Created Zim root page: {raw_root_page}")
-    
-    # Setup log file if requested
-    log_file = None
-    if args.log_file:
-        log_file = Path(args.log_file).expanduser().resolve()
+        if not validate_paths(notable_dir, zim_dir):
+            sys.exit(1)
+        
+        # Check for Pandoc
+        if not check_pandoc():
+            print("[ERROR] Pandoc is required but not found in PATH.")
+            print("Please install Pandoc from https://pandoc.org/")
+            sys.exit(1)
+        
+        # Setup log file if requested
+        log_file = None
+        if args.log_file:
+            log_file = Path(args.log_file).expanduser().resolve()
+            if not args.dry_run:
+                ensure_dir(log_file.parent)
+                append_file(log_file, f"\n=== Import session started at {datetime.now().isoformat()} ===\n")
+        
+        # Set global log file for error logging
+        set_log_file(log_file)
+        
+        journal_root = zim_dir / "Journal"
+        raw_store = zim_dir / "raw_ai_notes"
+        
+        # Create temporary directory for pandoc operations
+        temp_dir = None
         if not args.dry_run:
-            ensure_dir(log_file.parent)
-            append_file(log_file, f"\n=== Import session started at {datetime.now().isoformat()} ===\n")
-    
-    # Collect and sort Notable MD files by creation time
-    md_files = list(notable_dir.glob("*.md"))
-    if not md_files:
-        print(f"[WARNING] No .md files found in {notable_dir}")
-        return
-    
-    md_files.sort(key=get_file_date)
-    
-    print(f"\nFound {len(md_files)} markdown files to process")
-    
-    success_count = 0
-    skip_count = 0
-    error_count = 0
-    
-    for i, md_file in enumerate(md_files, 1):
-        print(f"\n[{i}/{len(md_files)}] Processing: {md_file.name}")
+            temp_dir = Path(tempfile.mkdtemp(prefix='zim_import_'))
+            print(f"Using temporary directory: {temp_dir}")
+        
+        print(f"Notable directory: {notable_dir}")
+        print(f"Zim directory: {zim_dir}")
+        print(f"Raw AI notes will be stored in: {raw_store}")
+        print(f"Journal links will be added to: {journal_root}")
         
         if args.dry_run:
-            slug = slugify(md_file.stem)
-            note_file = raw_store / f"{slug}.txt"
-            if note_file.exists():
-                print(f"  Would skip (already exists): {note_file.name}")
-                skip_count += 1
-            else:
-                print(f"  Would import as: {note_file.name}")
-                success_count += 1
-        else:
-            result = import_md_file(md_file, raw_store, journal_root, log_file)
-            if result:
-                # Check if it was actually imported or skipped
+            print("\n[DRY RUN MODE] - No files will be modified")
+        
+        # Create necessary directories
+        if not args.dry_run:
+            ensure_dir(raw_store)
+            ensure_dir(journal_root)
+            
+            # Create raw_ai_notes root page for Zim index
+            raw_root_page = zim_dir / "raw_ai_notes.txt"
+            if not raw_root_page.exists():
+                if write_file(raw_root_page, zim_header("Raw AI Notes")):
+                    print(f"Created Zim root page: {raw_root_page}")
+        
+        # Collect and sort Notable MD files by creation time
+        md_files = list(notable_dir.glob("*.md"))
+        if not md_files:
+            log_warning(f"No .md files found in {notable_dir}")
+            return
+        
+        md_files.sort(key=get_file_date)
+        
+        print(f"\nFound {len(md_files)} markdown files to process")
+        
+        success_count = 0
+        skip_count = 0
+        error_count = 0
+        
+        for i, md_file in enumerate(md_files, 1):
+            print(f"\n[{i}/{len(md_files)}] Processing: {md_file.name}")
+            
+            if args.dry_run:
                 slug = slugify(md_file.stem)
                 note_file = raw_store / f"{slug}.txt"
                 if note_file.exists():
-                    success_count += 1
-                else:
+                    print(f"  Would skip (already exists): {note_file.name}")
                     skip_count += 1
+                else:
+                    print(f"  Would import as: {note_file.name}")
+                    success_count += 1
             else:
-                error_count += 1
+                result = import_md_file(md_file, raw_store, journal_root, log_file, temp_dir)
+                if result == ImportStatus.SUCCESS:
+                    success_count += 1
+                elif result == ImportStatus.SKIPPED:
+                    skip_count += 1
+                elif result == ImportStatus.ERROR:
+                    error_count += 1    
+                else:
+                    log_error(f"Unexpected result for {md_file}: {result}")
+                    error_count += 1
+                      
+        # Final summary
+        print(f"\n{'='*50}")
+        print("IMPORT SUMMARY")
+        print(f"{'='*50}")
+        print(f"Total files processed: {len(md_files)}")
+        print(f"Successfully imported: {success_count}")
+        print(f"Skipped (already exist): {skip_count}")
+        print(f"Errors: {error_count}")
+        
+        if log_file and not args.dry_run:
+            summary = (
+                f"\n=== Import session completed at {datetime.now().isoformat()} ===\n"
+                f"Total: {len(md_files)}, Success: {success_count}, "
+                f"Skipped: {skip_count}, Errors: {error_count}\n"
+            )
+            append_file(log_file, summary)
+            print(f"\nDetailed log written to: {log_file}")
+        
+    except Exception as e:
+        log_error(f"Unexpected error during import process: {e}")
+        sys.exit(1)
     
-    # Final summary
-    print(f"\n{'='*50}")
-    print("IMPORT SUMMARY")
-    print(f"{'='*50}")
-    print(f"Total files processed: {len(md_files)}")
-    print(f"Successfully imported: {success_count}")
-    print(f"Skipped (already exist): {skip_count}")
-    print(f"Errors: {error_count}")
-    
-    if log_file and not args.dry_run:
-        summary = (
-            f"\n=== Import session completed at {datetime.now().isoformat()} ===\n"
-            f"Total: {len(md_files)}, Success: {success_count}, "
-            f"Skipped: {skip_count}, Errors: {error_count}\n"
-        )
-        append_file(log_file, summary)
-        print(f"\nDetailed log written to: {log_file}")
+    finally:
+        # Clean up temporary directory
+        if temp_dir and temp_dir.exists():
+            try:
+                shutil.rmtree(temp_dir)
+                print(f"Cleaned up temporary directory: {temp_dir}")
+            except Exception as e:
+                log_warning(f"Could not clean up temporary directory {temp_dir}: {e}")
+
 
 if __name__ == "__main__":
     main()
