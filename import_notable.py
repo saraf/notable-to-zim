@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """
-import_notable.py - VERSION v1.9.2
+import_notable.py - VERSION v1.9.3
 
 Import Notable Markdown notes into a Zim Desktop Wiki notebook,
 creating raw AI notes with proper Zim metadata, and appending
 links to the Journal pages in chronological order.
 
 Part of the Notable-to-Zim project.
+
+CHANGES IN v1.9.3:
+- Fixed duplicate heading issue in Zim notes by normalizing Unicode characters in remove_duplicate_heading.
+- Added unicodedata dependency for Unicode normalization.
 
 CHANGES IN v1.9.2:
 - Strengthened temp_dir check in main() to avoid UnboundLocalError by checking if temp_dir is defined.
@@ -41,6 +45,7 @@ from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Any
 from enum import Enum
 import yaml
+import unicodedata
 from dateutil import parser as dateutil_parser
 
 # ------------------------ Constants ------------------------
@@ -275,17 +280,21 @@ def create_zim_note(note_path: Path, title: str, content: str, tags: List[str]) 
 def remove_duplicate_heading(content: str, title: str, file_stem: str) -> str:
     """Remove duplicate level-1 heading from Pandoc-converted content if it matches title or file stem."""
     log_message(f"Checking for duplicate heading in content: title='{title}', file_stem='{file_stem}'", "DEBUG")
+    # Normalize Unicode characters to handle variations (e.g., curly vs. straight apostrophes)
+    normalized_content = unicodedata.normalize('NFKC', content)
+    normalized_title = unicodedata.normalize('NFKC', title)
+    normalized_file_stem = unicodedata.normalize('NFKC', file_stem)
     # Zim level-1 heading format: ====== Title ======
-    heading_pattern = r'======\s*' + re.escape(title) + r'\s*======\n*'
-    alt_heading_pattern = r'======\s*' + re.escape(file_stem) + r'\s*======\n*'
+    heading_pattern = r'======\s*' + re.escape(normalized_title) + r'\s*======\n*'
+    alt_heading_pattern = r'======\s*' + re.escape(normalized_file_stem) + r'\s*======\n*'
     
     # Check for heading matching title
-    if re.match(heading_pattern, content):
-        content = re.sub(heading_pattern, '', content, count=1)
+    if re.match(heading_pattern, normalized_content):
+        content = re.sub(heading_pattern, '', normalized_content, count=1)
         log_message(f"Removed duplicate heading matching title: {title}", "DEBUG")
     # Check for heading matching file stem (if title is derived from filename)
-    elif re.match(alt_heading_pattern, content):
-        content = re.sub(alt_heading_pattern, '', content, count=1)
+    elif re.match(alt_heading_pattern, normalized_content):
+        content = re.sub(alt_heading_pattern, '', normalized_content, count=1)
         log_message(f"Removed duplicate heading matching file stem: {file_stem}", "DEBUG")
     
     return content.strip()
