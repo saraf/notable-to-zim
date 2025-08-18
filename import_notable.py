@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """
-import_notable.py - VERSION v1.7
+import_notable.py - VERSION v1.8
 
 Import Notable Markdown notes into a Zim Desktop Wiki notebook,
 creating raw AI notes with proper Zim metadata, and appending
 links to the Journal pages in chronological order.
 
-CHANGES IN v1.7:
-- Simplified tags handling in import_md_file to prevent TypeError for None tags.
-- Added debug logging in run_pandoc and create_zim_note for better diagnostics.
-- Ensured robust file writing in run_pandoc mock for tests.
+CHANGES IN v1.8:
+- Removed duplicate level-1 heading in raw_ai_notes output after Pandoc conversion if it matches the YAML title or file stem.
+- Added debug logging for heading removal process.
 - No new dependencies required.
 """
 
@@ -236,6 +235,24 @@ def create_zim_note(note_path: Path, title: str, content: str, tags: List[str]) 
         return True
     return False
 
+def remove_duplicate_heading(content: str, title: str, file_stem: str) -> str:
+    """Remove duplicate level-1 heading from Pandoc-converted content if it matches title or file stem."""
+    log_message(f"Checking for duplicate heading in content: title='{title}', file_stem='{file_stem}'", "DEBUG")
+    # Zim level-1 heading format: ====== Title ======
+    heading_pattern = r'======\s*' + re.escape(title) + r'\s*======\n*'
+    alt_heading_pattern = r'======\s*' + re.escape(file_stem) + r'\s*======\n*'
+    
+    # Check for heading matching title
+    if re.match(heading_pattern, content):
+        content = re.sub(heading_pattern, '', content, count=1)
+        log_message(f"Removed duplicate heading matching title: {title}", "DEBUG")
+    # Check for heading matching file stem (if title is derived from filename)
+    elif re.match(alt_heading_pattern, content):
+        content = re.sub(alt_heading_pattern, '', content, count=1)
+        log_message(f"Removed duplicate heading matching file stem: {file_stem}", "DEBUG")
+    
+    return content.strip()
+
 def parse_timestamp(timestamp: Any) -> Optional[datetime]:
     """Parse ISO 8601 timestamp or datetime object from YAML, return None if invalid."""
     if isinstance(timestamp, datetime):
@@ -371,6 +388,9 @@ def import_md_file(md_path: Path, raw_store: Path, journal_root: Path,
             content_plain = read_file(note_file)
             if not content_plain:
                 return ImportStatus.ERROR
+
+            # Remove duplicate level-1 heading
+            content_plain = remove_duplicate_heading(content_plain, title, md_path.stem)
 
             # Create final Zim note with proper header and tags
             if not create_zim_note(note_file, title, content_plain, tags):
