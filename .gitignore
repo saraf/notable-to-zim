@@ -1,0 +1,32 @@
+# Python virtual environment
+venv/
+env/
+
+# Python bytecode and cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Test and build artifacts
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Temporary files
+*.log
+*.tmp
+*.bak
+*.swp
+
+# Editor and OS files
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+.idea/
+.vscode/
+
+# Zim and Notable directories (avoid committing user data)
+notable/
+zim/
