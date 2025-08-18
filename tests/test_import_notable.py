@@ -94,7 +94,15 @@ Content here.
     journal_root = temp_zim_dir / 'Journal'
     
     # Mock subprocess.run
-    mocker.patch('import_notable.subprocess.run', side_effect=lambda cmd, **kwargs: Path(cmd[-3]).parent.mkdir(parents=True, exist_ok=True) or Path(cmd[-3]).write_text(Path(cmd[-1]).read_text() + " (Zim formatted)"))
+    def mock_subprocess_run(cmd, **kwargs):
+        output_path = Path(cmd[-3])
+        input_path = Path(cmd[-1])
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_content = input_path.read_text(encoding="utf-8") + " (Zim formatted)"
+        output_path.write_text(output_content, encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0)
+    
+    mocker.patch('import_notable.subprocess.run', side_effect=mock_subprocess_run)
     # Mock get_file_date
     mocker.patch('import_notable.get_file_date', return_value=datetime(2025, 8, 18))
     
@@ -147,7 +155,15 @@ Content of second note.
     journal_root = temp_zim_dir / 'Journal'
     
     # Mock subprocess.run
-    mocker.patch('import_notable.subprocess.run', side_effect=lambda cmd, **kwargs: Path(cmd[-3]).parent.mkdir(parents=True, exist_ok=True) or Path(cmd[-3]).write_text(Path(cmd[-1]).read_text() + " (Zim formatted)"))
+    def mock_subprocess_run(cmd, **kwargs):
+        output_path = Path(cmd[-3])
+        input_path = Path(cmd[-1])
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_content = input_path.read_text(encoding="utf-8") + " (Zim formatted)"
+        output_path.write_text(output_content, encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0)
+    
+    mocker.patch('import_notable.subprocess.run', side_effect=mock_subprocess_run)
     # Mock get_file_date
     mocker.patch('import_notable.get_file_date', return_value=datetime(2025, 8, 18))
     

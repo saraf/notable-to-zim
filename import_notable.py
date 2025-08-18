@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-import_notable.py - VERSION v1.6
+import_notable.py - VERSION v1.7
 
 Import Notable Markdown notes into a Zim Desktop Wiki notebook,
 creating raw AI notes with proper Zim metadata, and appending
 links to the Journal pages in chronological order.
 
-CHANGES IN v1.6:
-- Enhanced tags handling in import_md_file to explicitly convert None or invalid tags to empty list.
-- Added debug logging for parsed metadata to diagnose YAML parsing issues.
+CHANGES IN v1.7:
+- Simplified tags handling in import_md_file to prevent TypeError for None tags.
+- Added debug logging in run_pandoc and create_zim_note for better diagnostics.
+- Ensured robust file writing in run_pandoc mock for tests.
 - No new dependencies required.
 """
 
@@ -151,9 +152,11 @@ def check_pandoc() -> bool:
 
 def run_pandoc(input_md: Path, output_txt: Path) -> bool:
     """Convert markdown to Zim wiki format using Pandoc."""
+    log_message(f"Running pandoc: input={input_md}, output={output_txt}", "DEBUG")
     cmd = ["pandoc", "-f", "markdown", "-t", "zimwiki", "-o", str(output_txt), str(input_md)]
     try:
         result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        log_message(f"Pandoc succeeded for {input_md}", "DEBUG")
         return True
     except subprocess.CalledProcessError as e:
         log_error(f"Pandoc failed for {input_md}: {e}")
@@ -222,8 +225,10 @@ def append_journal_link(page_path: Path, link_text: str, link_target: str) -> bo
 
 def create_zim_note(note_path: Path, title: str, content: str, tags: List[str]) -> bool:
     """Create a Zim note with proper header, content, and tags section."""
+    log_message(f"Creating Zim note: {note_path}, tags={tags}", "DEBUG")
     header = zim_header(title)
     # Append tags as a section in Zim-compatible format
+    tags = tags or []  # Ensure tags is a list
     tags_section = "\n\n**Tags:** " + " ".join(f"@{tag}" for tag in tags) + "\n" if tags else ""
     full_content = header + content + tags_section
     if write_file(note_path, full_content):
@@ -320,10 +325,11 @@ def import_md_file(md_path: Path, raw_store: Path, journal_root: Path,
         
         # Extract metadata with fallbacks
         title = metadata.get('title', md_path.stem)
-        tags = metadata.get('tags', []) or []  # Handle None or invalid tags
+        tags = metadata.get('tags') or []
         if not isinstance(tags, list):
             log_warning(f"Tags is not a list in {md_path}: {tags}, converting to empty list")
             tags = []
+        log_message(f"Processed tags for {md_path}: {tags}", "DEBUG")
         
         # Generate unique slug, considering existing files
         slug = slugify(title, raw_store, used_slugs)
