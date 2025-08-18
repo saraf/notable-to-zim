@@ -237,14 +237,29 @@ def get_file_date(md_path: Path) -> datetime:
         # Fallback to modification time
         return datetime.fromtimestamp(md_path.stat().st_mtime)
 
+def needs_update(source_path: Path, dest_path: Path) -> bool:
+    """Check if source file is newer than destination file."""
+    if not dest_path.exists():
+        return True
+    
+    try:
+        source_mtime = source_path.stat().st_mtime
+        dest_mtime = dest_path.stat().st_mtime
+        return source_mtime > dest_mtime
+    except Exception as e:
+        log_warning(f"Could not compare file times for {source_path}: {e}")
+        # If we can't determine, err on the side of updating
+        return True
+
 # ------------------------ Main Import Logic ------------------------
 
 def import_md_file(md_path: Path, raw_store: Path, journal_root: Path, 
-                   log_file: Optional[Path] = None, temp_dir: Optional[Path] = None) -> bool:
+                   log_file: Optional[Path] = None, temp_dir: Optional[Path] = None) -> ImportStatus:
     """Import a single markdown file into Zim wiki.
     This function handles the conversion, creation of Zim notes,
     and appending links to the journal.
     
+    Now supports updating existing files when source is newer.
     """
     try:
         # Read and strip YAML front matter
@@ -257,10 +272,17 @@ def import_md_file(md_path: Path, raw_store: Path, journal_root: Path,
         slug = slugify(md_path.stem)
         note_file = raw_store / f"{slug}.txt"
         
-        # Idempotent check
-        if note_file.exists():
-            print(f"Skipping already imported note: {note_file.name}")
+        # Check if update is needed
+        is_new_file = not note_file.exists()
+        needs_reimport = needs_update(md_path, note_file)
+        
+        if not needs_reimport:
+            print(f"Skipping up-to-date note: {note_file.name}")
             return ImportStatus.SKIPPED
+        
+        # Determine action type for logging
+        action_type = "Importing new" if is_new_file else "Updating existing"
+        print(f"{action_type} note: {note_file.name}")
         
         # Create temporary markdown file for pandoc in system temp directory
         temp_md = None
@@ -284,7 +306,7 @@ def import_md_file(md_path: Path, raw_store: Path, journal_root: Path,
             if not content_plain:
                 return ImportStatus.ERROR
 
-            # Create final Zim note with proper header
+            # Create final Zim note with proper header (this overwrites existing file)
             if not create_zim_note(note_file, md_path.stem, content_plain):
                 return ImportStatus.ERROR
             
@@ -296,20 +318,23 @@ def import_md_file(md_path: Path, raw_store: Path, journal_root: Path,
                 except Exception as e:
                     log_warning(f"Could not delete temporary file {temp_md}: {e}")
         
-        # Determine journal page by file creation date
-        created_ts = get_file_date(md_path)
-        year = created_ts.strftime("%Y")
-        month = created_ts.strftime("%m")
-        day = created_ts.strftime("%d")
-        journal_page = journal_root / year / month / f"{day}.txt"
-        
-        # Append link to journal
-        if not append_journal_link(journal_page, md_path.stem, f"raw_ai_notes:{slug}"):
-            log_warning(f"Failed to add journal link for {md_path}")
+        # Only add journal link for new files, not updates
+        if is_new_file:
+            # Determine journal page by file creation date
+            created_ts = get_file_date(md_path)
+            year = created_ts.strftime("%Y")
+            month = created_ts.strftime("%m")
+            day = created_ts.strftime("%d")
+            journal_page = journal_root / year / month / f"{day}.txt"
+            
+            # Append link to journal
+            if not append_journal_link(journal_page, md_path.stem, f"raw_ai_notes:{slug}"):
+                log_warning(f"Failed to add journal link for {md_path}")
         
         # Log if requested
         if log_file:
-            log_entry = f"SUCCESS: Imported {md_path} -> {note_file}\n"
+            status = "NEW" if is_new_file else "UPDATED"
+            log_entry = f"{status}: Processed {md_path} -> {note_file}\n"
             append_file(log_file, log_entry)
         
         return ImportStatus.SUCCESS
@@ -318,7 +343,7 @@ def import_md_file(md_path: Path, raw_store: Path, journal_root: Path,
     except Exception as e:
         log_error(f"Failed to import {md_path}: {e}")
         return ImportStatus.ERROR
-
+    
 def validate_paths(notable_dir: Path, zim_dir: Path) -> bool:
     """Validate that the specified paths exist and are accessible."""
     if not notable_dir.exists():
