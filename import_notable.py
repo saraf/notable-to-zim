@@ -1,22 +1,16 @@
 #!/usr/bin/env python3
 """
-import_notable.py - BASELINE VERSION v1.0
+import_notable.py - VERSION v1.2
 
 Import Notable Markdown notes into a Zim Desktop Wiki notebook,
 creating raw AI notes with proper Zim metadata, and appending
 links to the Journal pages in chronological order.
 
-BASELINE FEATURES (v1.0):
-- Slugified filenames for raw AI notes.
-- Idempotent import (skips already imported notes).
-- Chronological journal links under "AI Notes" section.
-- Pandoc conversion from Markdown to Zim-friendly plain text.
-- Handles YAML front matter safely.
-- Logging to console and optional log file.
-- Better error handling and Windows compatibility.
-- Progress reporting for large imports.
-- Dry-run mode for previewing imports.
-- Input validation and Pandoc availability check.
+CHANGES IN v1.2:
+- Improved parse_timestamp to use dateutil.parser for robust ISO 8601 parsing.
+- Made timestamps offset-naive in needs_update to avoid comparison errors.
+- Added debug logging for timestamp parsing failures.
+- Added python-dateutil dependency.
 """
 
 # ------------------------ Imports ------------------------
@@ -29,8 +23,10 @@ import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple, List, Dict, Any
 from enum import Enum
+import yaml
+from dateutil import parser as dateutil_parser  # Added for robust timestamp parsing
 
 # ------------------------ Constants ------------------------
 class ImportStatus(Enum):
@@ -88,13 +84,19 @@ def ensure_dir(path: Path) -> None:
     """Create directory if it doesn't exist."""
     path.mkdir(parents=True, exist_ok=True)
 
-def strip_yaml_front_matter(content: str) -> str:
-    """Remove YAML front matter from markdown content."""
+def parse_yaml_front_matter(content: str) -> Tuple[str, Dict[str, Any]]:
+    """Parse YAML front matter and return stripped content and metadata."""
     if content.startswith("---"):
         parts = content.split("---", 2)
         if len(parts) >= 3:
-            return parts[2].lstrip("\n")
-    return content
+            try:
+                metadata = yaml.safe_load(parts[1]) or {}
+                content = parts[2].lstrip("\n")
+                return content, metadata
+            except yaml.YAMLError as e:
+                log_warning(f"Failed to parse YAML front matter: {e}")
+                return content, {}
+    return content, {}
 
 def read_file(path: Path) -> str:
     """Read file content with error handling."""
@@ -125,7 +127,7 @@ def append_file(path: Path, content: str) -> bool:
             f.write(content)
         return True
     except Exception as e:
-        # Don't use log_error here to avoid infinite recursion when logging fails
+        # Don't use log_error to avoid infinite recursion when logging fails
         print(f"[ERROR] Could not append to file {path}: {e}")
         return False
 
@@ -211,19 +213,36 @@ def append_journal_link(page_path: Path, link_text: str, link_target: str) -> bo
         return True
     return False
 
-def create_zim_note(note_path: Path, title: str, content: str) -> bool:
-    """Create a Zim note with proper header and content."""
+def create_zim_note(note_path: Path, title: str, content: str, tags: List[str]) -> bool:
+    """Create a Zim note with proper header, content, and tags section."""
     header = zim_header(title)
-    full_content = header + content
+    # Append tags as a section in Zim-compatible format
+    tags_section = "\n\n**Tags:** " + " ".join(f"@{tag}" for tag in tags) + "\n" if tags else ""
+    full_content = header + content + tags_section
     if write_file(note_path, full_content):
         print(f"Imported new AI note: {note_path.name}")
         return True
     return False
 
-def get_file_date(md_path: Path) -> datetime:
-    """Get the creation/modification date of a file."""
+def parse_timestamp(timestamp: str) -> Optional[datetime]:
+    """Parse ISO 8601 timestamp from YAML, return None if invalid."""
     try:
-        # Try to get creation time first (Windows), fall back to modification time
+        parsed = dateutil_parser.isoparse(timestamp)
+        # Convert to offset-naive for consistency
+        return parsed.replace(tzinfo=None)
+    except (ValueError, TypeError) as e:
+        log_warning(f"Failed to parse timestamp '{timestamp}': {e}")
+        return None
+
+def get_file_date(md_path: Path, metadata: Dict[str, Any]) -> datetime:
+    """Get the creation date from YAML metadata, fall back to filesystem."""
+    created = metadata.get('created')
+    if created:
+        parsed = parse_timestamp(created)
+        if parsed:
+            return parsed
+    log_warning(f"No valid 'created' timestamp in {md_path}, using filesystem creation time")
+    try:
         if hasattr(os.stat_result, 'st_birthtime'):
             # macOS
             return datetime.fromtimestamp(md_path.stat().st_birthtime)
@@ -234,47 +253,65 @@ def get_file_date(md_path: Path) -> datetime:
             # Linux/Unix - use modification time
             return datetime.fromtimestamp(md_path.stat().st_mtime)
     except Exception:
-        # Fallback to modification time
-        return datetime.fromtimestamp(md_path.stat().st_mtime)
+        # Fallback to current time
+        log_warning(f"Could not get filesystem timestamp for {md_path}, using current time")
+        return datetime.now()
 
-def needs_update(source_path: Path, dest_path: Path) -> bool:
-    """Check if source file is newer than destination file."""
+def needs_update(source_path: Path, dest_path: Path, metadata: Dict[str, Any]) -> bool:
+    """Check if source file's YAML modified timestamp is newer than destination file."""
     if not dest_path.exists():
         return True
     
+    modified = metadata.get('modified')
+    if modified:
+        parsed = parse_timestamp(modified)
+        if parsed:
+            try:
+                dest_mtime = datetime.fromtimestamp(dest_path.stat().st_mtime)
+                return parsed > dest_mtime
+            except Exception as e:
+                log_warning(f"Could not compare file times for {source_path}: {e}")
+                return True
+    
+    log_warning(f"No valid 'modified' timestamp in {source_path}, using filesystem check")
     try:
-        source_mtime = source_path.stat().st_mtime
-        dest_mtime = dest_path.stat().st_mtime
+        source_mtime = datetime.fromtimestamp(source_path.stat().st_mtime)
+        dest_mtime = datetime.fromtimestamp(dest_path.stat().st_mtime)
         return source_mtime > dest_mtime
     except Exception as e:
-        log_warning(f"Could not compare file times for {source_path}: {e}")
-        # If we can't determine, err on the side of updating
+        log_warning(f"Could not compare filesystem times for {source_path}: {e}")
         return True
 
 # ------------------------ Main Import Logic ------------------------
 
 def import_md_file(md_path: Path, raw_store: Path, journal_root: Path, 
                    log_file: Optional[Path] = None, temp_dir: Optional[Path] = None) -> ImportStatus:
-    """Import a single markdown file into Zim wiki.
-    This function handles the conversion, creation of Zim notes,
-    and appending links to the journal.
-    
-    Now supports updating existing files when source is newer.
-    """
+    """Import a single markdown file into Zim wiki."""
     try:
-        # Read and strip YAML front matter
-        content = strip_yaml_front_matter(read_file(md_path))
+        # Read and parse YAML front matter
+        content = read_file(md_path)
         if not content.strip():
-            log_warning(f"Empty content after processing: {md_path}")
+            log_warning(f"Empty content in: {md_path}")
             return ImportStatus.ERROR
         
-        # Slugify filename
-        slug = slugify(md_path.stem)
+        content, metadata = parse_yaml_front_matter(content)
+        if not content.strip():
+            log_warning(f"Empty content after YAML processing: {md_path}")
+            return ImportStatus.ERROR
+        
+        # Extract metadata with fallbacks
+        title = metadata.get('title', md_path.stem)
+        tags = metadata.get('tags', [])
+        if isinstance(tags, str):
+            tags = [tags]  # Handle single tag as string
+        elif not isinstance(tags, list):
+            tags = []  # Fallback for invalid tags
+        slug = slugify(title)
         note_file = raw_store / f"{slug}.txt"
         
         # Check if update is needed
         is_new_file = not note_file.exists()
-        needs_reimport = needs_update(md_path, note_file)
+        needs_reimport = needs_update(md_path, note_file, metadata)
         
         if not needs_reimport:
             print(f"Skipping up-to-date note: {note_file.name}")
@@ -284,10 +321,9 @@ def import_md_file(md_path: Path, raw_store: Path, journal_root: Path,
         action_type = "Importing new" if is_new_file else "Updating existing"
         print(f"{action_type} note: {note_file.name}")
         
-        # Create temporary markdown file for pandoc in system temp directory
+        # Create temporary markdown file for pandoc
         temp_md = None
         try:
-            # Create temporary file in the specified temp directory or system default
             temp_fd, temp_path = tempfile.mkstemp(suffix='.md', prefix='zim_import_', 
                                                  dir=temp_dir)
             temp_md = Path(temp_path)
@@ -306,39 +342,38 @@ def import_md_file(md_path: Path, raw_store: Path, journal_root: Path,
             if not content_plain:
                 return ImportStatus.ERROR
 
-            # Create final Zim note with proper header (this overwrites existing file)
-            if not create_zim_note(note_file, md_path.stem, content_plain):
+            # Create final Zim note with proper header and tags
+            if not create_zim_note(note_file, title, content_plain, tags):
                 return ImportStatus.ERROR
             
         finally:
-            # Clean up temp file - always attempt cleanup
+            # Clean up temp file
             if temp_md and temp_md.exists():
                 try:
                     temp_md.unlink()
                 except Exception as e:
                     log_warning(f"Could not delete temporary file {temp_md}: {e}")
         
-        # Only add journal link for new files, not updates
+        # Only add journal link for new files
         if is_new_file:
             # Determine journal page by file creation date
-            created_ts = get_file_date(md_path)
+            created_ts = get_file_date(md_path, metadata)
             year = created_ts.strftime("%Y")
             month = created_ts.strftime("%m")
             day = created_ts.strftime("%d")
             journal_page = journal_root / year / month / f"{day}.txt"
             
             # Append link to journal
-            if not append_journal_link(journal_page, md_path.stem, f"raw_ai_notes:{slug}"):
+            if not append_journal_link(journal_page, title, f"raw_ai_notes:{slug}"):
                 log_warning(f"Failed to add journal link for {md_path}")
         
         # Log if requested
         if log_file:
             status = "NEW" if is_new_file else "UPDATED"
-            log_entry = f"{status}: Processed {md_path} -> {note_file}\n"
+            log_entry = f"{status}: Processed {md_path} -> {note_file} (Title: {title}, Tags: {tags})\n"
             append_file(log_file, log_entry)
         
         return ImportStatus.SUCCESS
-
         
     except Exception as e:
         log_error(f"Failed to import {md_path}: {e}")
@@ -437,7 +472,13 @@ def main():
             log_warning(f"No .md files found in {notable_dir}")
             return
         
-        md_files.sort(key=get_file_date)
+        # Sort by YAML created timestamp
+        def get_sort_key(md_file: Path) -> datetime:
+            content = read_file(md_file)
+            _, metadata = parse_yaml_front_matter(content)
+            return get_file_date(md_file, metadata)
+        
+        md_files.sort(key=get_sort_key)
         
         print(f"\nFound {len(md_files)} markdown files to process")
         
@@ -449,7 +490,10 @@ def main():
             print(f"\n[{i}/{len(md_files)}] Processing: {md_file.name}")
             
             if args.dry_run:
-                slug = slugify(md_file.stem)
+                content = read_file(md_file)
+                _, metadata = parse_yaml_front_matter(content)
+                title = metadata.get('title', md_file.stem)
+                slug = slugify(title)
                 note_file = raw_store / f"{slug}.txt"
                 if note_file.exists():
                     print(f"  Would skip (already exists): {note_file.name}")
