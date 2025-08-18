@@ -1,5 +1,8 @@
 .PHONY: all test clean lint setup venv
 
+ZIM_NOTEBOOK_DIR := /d/aalhad/TestNotable
+NOTABLE_NOTES_DIR := /g/My Drive/MarkdownNotes/notes/
+
 all: test
 
 test:
@@ -8,6 +11,17 @@ test:
 clean:
 	@rm -rf __pycache__ tests/__pycache__ .pytest_cache venv
 	@echo "Cleaned up cache directories and virtual environment"
+
+zim-clean:
+	@rm -rf $(ZIM_NOTEBOOK_DIR)/Journal/*
+	@rm -rf $(ZIM_NOTEBOOK_DIR)/raw_ai_notes
+	@rm -f $(ZIM_NOTEBOOK_DIR)/raw_ai_notes.txt
+	@rm -f *.log
+	@echo "Cleaned up the Zim raw ai notes area - and the Journal" 
+
+zim-run:
+	./import_notable.py --notable-dir "$(NOTABLE_NOTES_DIR)" --zim-dir "$(ZIM_NOTEBOOK_DIR)" --log-file test.log
+# ./import_notable.py --notable-dir "/g/My Drive/MarkdownNotes/notes/" --zim-dir $(ZIM_NOTEBOOK_DIR) --log-file test.log
 
 lint:
 	@pylint import_notable.py
