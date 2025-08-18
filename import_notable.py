@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-import_notable.py - VERSION v1.5
+import_notable.py - VERSION v1.6
 
 Import Notable Markdown notes into a Zim Desktop Wiki notebook,
 creating raw AI notes with proper Zim metadata, and appending
 links to the Journal pages in chronological order.
 
-CHANGES IN v1.5:
-- Fixed handling of tags=None in YAML metadata to prevent TypeError.
-- Updated docstring to reflect v1.5 changes.
+CHANGES IN v1.6:
+- Enhanced tags handling in import_md_file to explicitly convert None or invalid tags to empty list.
+- Added debug logging for parsed metadata to diagnose YAML parsing issues.
 - No new dependencies required.
 """
 
@@ -313,6 +313,7 @@ def import_md_file(md_path: Path, raw_store: Path, journal_root: Path,
             return ImportStatus.ERROR
         
         content, metadata = parse_yaml_front_matter(content)
+        log_message(f"Parsed metadata for {md_path}: {metadata}", "DEBUG")
         if not content.strip():
             log_warning(f"Empty content after YAML processing: {md_path}")
             return ImportStatus.ERROR
@@ -320,8 +321,9 @@ def import_md_file(md_path: Path, raw_store: Path, journal_root: Path,
         # Extract metadata with fallbacks
         title = metadata.get('title', md_path.stem)
         tags = metadata.get('tags', []) or []  # Handle None or invalid tags
-        if isinstance(tags, str):
-            tags = [tags]  # Handle single tag as string
+        if not isinstance(tags, list):
+            log_warning(f"Tags is not a list in {md_path}: {tags}, converting to empty list")
+            tags = []
         
         # Generate unique slug, considering existing files
         slug = slugify(title, raw_store, used_slugs)

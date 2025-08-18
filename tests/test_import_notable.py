@@ -50,6 +50,22 @@ Content here.
     assert isinstance(metadata["created"], datetime)
     assert metadata["created"] == datetime(2025, 7, 24, 12, 55, 26, 779000, tzinfo=timezone.utc)
 
+def test_parse_yaml_front_matter_tags():
+    """Test parsing YAML front matter with tags explicitly."""
+    content = """---
+title: Test Note
+tags: [test]
+created: 2025-07-24T12:55:26.779Z
+---
+# Test Note
+Content here.
+"""
+    body, metadata = parse_yaml_front_matter(content)
+    assert body.strip() == "# Test Note\nContent here."
+    assert metadata["title"] == "Test Note"
+    assert metadata["tags"] == ["test"]
+    assert isinstance(metadata["created"], datetime)
+
 def test_needs_update_new_file(mocker):
     """Test needs_update for a non-existent destination file."""
     source_path = Path("note.md")
@@ -72,7 +88,7 @@ modified: 2025-07-24T13:00:44.505Z
 # Datetime Note
 Content here.
 """
-    md_file.write_text(content)
+    md_file.write_text(content, encoding="utf-8")
     raw_store = temp_zim_dir / 'raw_ai_notes'
     raw_store.mkdir(parents=True, exist_ok=True)  # Ensure raw_store exists
     journal_root = temp_zim_dir / 'Journal'
@@ -123,8 +139,8 @@ modified: 2025-07-24T13:00:45.505Z
 # Untitled (2)
 Content of second note.
 """
-    md_file1.write_text(content1)
-    md_file2.write_text(content2)
+    md_file1.write_text(content1, encoding="utf-8")
+    md_file2.write_text(content2, encoding="utf-8")
     
     raw_store = temp_zim_dir / 'raw_ai_notes'
     raw_store.mkdir(parents=True, exist_ok=True)  # Ensure raw_store exists
