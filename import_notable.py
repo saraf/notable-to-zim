@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """
-import_notable.py - VERSION v1.4
+import_notable.py - VERSION v1.5
 
 Import Notable Markdown notes into a Zim Desktop Wiki notebook,
 creating raw AI notes with proper Zim metadata, and appending
 links to the Journal pages in chronological order.
 
-CHANGES IN v1.4:
-- Handle title collisions by using source filename as fallback.
-- Modified slugify to append numeric suffix for duplicate titles.
-- Updated logging to note when filename is used due to collision.
-- Ensured unique output filenames for files with identical YAML titles.
+CHANGES IN v1.5:
+- Fixed handling of tags=None in YAML metadata to prevent TypeError.
+- Updated docstring to reflect v1.5 changes.
+- No new dependencies required.
 """
 
 # ------------------------ Imports ------------------------
@@ -320,11 +319,9 @@ def import_md_file(md_path: Path, raw_store: Path, journal_root: Path,
         
         # Extract metadata with fallbacks
         title = metadata.get('title', md_path.stem)
-        tags = metadata.get('tags', [])
+        tags = metadata.get('tags', []) or []  # Handle None or invalid tags
         if isinstance(tags, str):
             tags = [tags]  # Handle single tag as string
-        elif not isinstance(tags, list):
-            tags = []  # Fallback for invalid tags
         
         # Generate unique slug, considering existing files
         slug = slugify(title, raw_store, used_slugs)

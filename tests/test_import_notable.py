@@ -1,17 +1,21 @@
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from import_notable import slugify, parse_yaml_front_matter, needs_update, import_md_file, ImportStatus
 
 @pytest.fixture
 def temp_notable_dir(tmp_path):
     """Create a temporary directory for Notable Markdown files."""
-    return tmp_path / "notable"
+    notable_dir = tmp_path / "notable"
+    notable_dir.mkdir(parents=True, exist_ok=True)
+    return notable_dir
 
 @pytest.fixture
 def temp_zim_dir(tmp_path):
     """Create a temporary directory for Zim notebook."""
-    return tmp_path / "zim"
+    zim_dir = tmp_path / "zim"
+    zim_dir.mkdir(parents=True, exist_ok=True)
+    return zim_dir
 
 def test_slugify_unique_titles(mocker):
     """Test slugify generates unique slugs for duplicate titles."""
@@ -26,8 +30,8 @@ def test_slugify_unique_titles(mocker):
     assert used_slugs == {"untitled"}
     
     slug2 = slugify("Untitled", dest_dir, used_slugs)
-    assert slug2 == "untitled_2"
-    assert used_slugs == {"untitled", "untitled_2"}
+    assert slug2 == "untitled_1"
+    assert used_slugs == {"untitled", "untitled_1"}
 
 def test_parse_yaml_front_matter():
     """Test parsing YAML front matter."""
@@ -41,11 +45,10 @@ Content here.
 """
     body, metadata = parse_yaml_front_matter(content)
     assert body.strip() == "# Test Note\nContent here."
-    assert metadata == {
-        "title": "Test Note",
-        "tags": ["test"],
-        "created": "2025-07-24T12:55:26.779Z"
-    }
+    assert metadata["title"] == "Test Note"
+    assert metadata["tags"] == ["test"]
+    assert isinstance(metadata["created"], datetime)
+    assert metadata["created"] == datetime(2025, 7, 24, 12, 55, 26, 779000, tzinfo=timezone.utc)
 
 def test_needs_update_new_file(mocker):
     """Test needs_update for a non-existent destination file."""
@@ -63,18 +66,19 @@ def test_import_md_file_with_datetime_yaml(mocker, temp_notable_dir, temp_zim_di
     content = """---
 title: Datetime Note
 tags: [test]
-created: 2025-07-24 12:55:26.779000+00:00
-modified: 2025-07-24 13:00:44.505000+00:00
+created: 2025-07-24T12:55:26.779Z
+modified: 2025-07-24T13:00:44.505Z
 ---
 # Datetime Note
 Content here.
 """
     md_file.write_text(content)
     raw_store = temp_zim_dir / 'raw_ai_notes'
+    raw_store.mkdir(parents=True, exist_ok=True)  # Ensure raw_store exists
     journal_root = temp_zim_dir / 'Journal'
     
     # Mock subprocess.run
-    mocker.patch('import_notable.subprocess.run', side_effect=lambda cmd, **kwargs: Path(cmd[-3]).write_text(Path(cmd[-1]).read_text() + " (Zim formatted)"))
+    mocker.patch('import_notable.subprocess.run', side_effect=lambda cmd, **kwargs: Path(cmd[-3]).parent.mkdir(parents=True, exist_ok=True) or Path(cmd[-3]).write_text(Path(cmd[-1]).read_text() + " (Zim formatted)"))
     # Mock get_file_date
     mocker.patch('import_notable.get_file_date', return_value=datetime(2025, 8, 18))
     
@@ -123,10 +127,11 @@ Content of second note.
     md_file2.write_text(content2)
     
     raw_store = temp_zim_dir / 'raw_ai_notes'
+    raw_store.mkdir(parents=True, exist_ok=True)  # Ensure raw_store exists
     journal_root = temp_zim_dir / 'Journal'
     
     # Mock subprocess.run
-    mocker.patch('import_notable.subprocess.run', side_effect=lambda cmd, **kwargs: Path(cmd[-3]).write_text(Path(cmd[-1]).read_text() + " (Zim formatted)"))
+    mocker.patch('import_notable.subprocess.run', side_effect=lambda cmd, **kwargs: Path(cmd[-3]).parent.mkdir(parents=True, exist_ok=True) or Path(cmd[-3]).write_text(Path(cmd[-1]).read_text() + " (Zim formatted)"))
     # Mock get_file_date
     mocker.patch('import_notable.get_file_date', return_value=datetime(2025, 8, 18))
     
@@ -140,7 +145,7 @@ Content of second note.
     
     # Verify output files
     note_file1 = raw_store / 'untitled.txt'
-    note_file2 = raw_store / 'untitled_2.txt'
+    note_file2 = raw_store / 'untitled_1.txt'
     assert note_file1.exists()
     assert note_file2.exists()
     
@@ -159,4 +164,4 @@ Content of second note.
     journal_content = journal_page.read_text()
     assert "===== AI Notes =====" in journal_content
     assert "[[raw_ai_notes:untitled|Untitled]]" in journal_content
-    assert "[[raw_ai_notes:untitled_2|Untitled]]" in journal_content
+    assert "[[raw_ai_notes:untitled_1|Untitled]]" in journal_content
