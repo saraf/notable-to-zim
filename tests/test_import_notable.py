@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """
-test_import_notable.py - Pytest unit tests for import_notable.py v1.9.10
-Covers all functions for importing Notable Markdown notes to Zim Wiki,
-including UTC timestamp handling and journal link deduplication.
-Dependencies: pytest>=7.0, pyyaml==6.0.1, python-dateutil, pytest-cov>=4.0.0
+Fixed test cases for import_notable.py
 """
 
 import pytest
@@ -54,6 +51,15 @@ def zim_dir(temp_dir):
     journal.mkdir(parents=True)
     raw_store.mkdir(parents=True)
     return zim_root
+
+# Add the missing mock_datetime fixture
+@pytest.fixture
+def mock_datetime():
+    """Mock datetime for consistent testing."""
+    with patch('import_notable.datetime') as mock_dt:
+        mock_dt.now.return_value = datetime(2023, 10, 4, tzinfo=timezone.utc)
+        mock_dt.fromtimestamp.return_value = datetime(2023, 10, 3, tzinfo=timezone.utc)
+        yield mock_dt
 
 def test_set_log_file(temp_dir):
     """Test setting the global log file."""
@@ -226,14 +232,24 @@ def test_parse_timestamp():
 
 def test_get_file_date(mock_datetime, sample_md):
     """Test getting file creation/modified dates."""
+    # Setup mock datetime returns
     mock_datetime.fromtimestamp.return_value = datetime(2023, 10, 3, tzinfo=timezone.utc)
     mock_datetime.now.return_value = datetime(2023, 10, 4, tzinfo=timezone.utc)
+    
+    # Test with valid metadata
     metadata = {"created": "2023-10-01T12:00:00Z"}
-    assert get_file_date(sample_md, metadata, "created") == datetime(2023, 10, 1, 12, 0, tzinfo=timezone.utc)
+    result = get_file_date(sample_md, metadata, "created")
+    assert result == datetime(2023, 10, 1, 12, 0, tzinfo=timezone.utc)
+    
+    # Test with invalid metadata - should fall back to file timestamp
     metadata = {"modified": "invalid"}
-    assert get_file_date(sample_md, metadata, "modified") == datetime(2023, 10, 3, tzinfo=timezone.utc)
+    result = get_file_date(sample_md, metadata, "modified")
+    assert result == datetime(2023, 10, 3, tzinfo=timezone.utc)
+    
+    # Test with empty metadata - should fall back to file timestamp
     metadata = {}
-    assert get_file_date(sample_md, metadata, "created") == datetime(2023, 10, 3, tzinfo=timezone.utc)
+    result = get_file_date(sample_md, metadata, "created")
+    assert result == datetime(2023, 10, 3, tzinfo=timezone.utc)
 
 def test_needs_update(sample_md, temp_dir):
     """Test checking if a file needs updating."""
@@ -252,19 +268,48 @@ def test_import_md_file(sample_md, zim_dir, temp_dir):
     raw_store = zim_dir / "raw_ai_notes"
     journal_root = zim_dir / "Journal"
     used_slugs = set()
+    
+    # Create temporary files that will be "created" by run_pandoc
+    temp_input = temp_dir / "test_note.md"
+    temp_output = temp_dir / "test_note.txt"
+    
+    # Mock the file operations to avoid actual file creation/deletion issues
+    def mock_write_file(path, content):
+        # Actually create the temp files when they're supposed to be created
+        if "test_note.md" in str(path) or "test_note.txt" in str(path):
+            path.touch()
+        return True
+    
+    def mock_read_file(path):
+        if "test_note.txt" in str(path):
+            return "Content"
+        # For the original sample_md file, read the actual content
+        if path == sample_md:
+            return sample_md.read_text()
+        return "Content"
+    
+    def mock_unlink(self):
+        # Only unlink if file exists
+        if self.exists():
+            os.unlink(self)
+    
     with patch("import_notable.run_pandoc", return_value=True), \
-         patch("import_notable.read_file", return_value="Content"), \
-         patch("import_notable.write_file", return_value=True), \
+         patch("import_notable.read_file", side_effect=mock_read_file), \
+         patch("import_notable.write_file", side_effect=mock_write_file), \
          patch("import_notable.create_journal_page", return_value=True), \
          patch("import_notable.append_file", return_value=True), \
-         patch("import_notable.zim_header", return_value="Header\n"):
+         patch("import_notable.zim_header", return_value="Header\n"), \
+         patch.object(Path, 'unlink', mock_unlink):
+        
         result = import_md_file(sample_md, raw_store, journal_root, None, temp_dir, used_slugs)
         assert result == ImportStatus.SUCCESS
-    # Test skip
+    
+    # Test skip case
     with patch("import_notable.needs_update", return_value=False):
         result = import_md_file(sample_md, raw_store, journal_root, None, temp_dir, used_slugs)
         assert result == ImportStatus.SKIPPED
-    # Test error
+    
+    # Test error case - empty file content
     with patch("import_notable.read_file", return_value=""):
         result = import_md_file(sample_md, raw_store, journal_root, None, temp_dir, used_slugs)
         assert result == ImportStatus.ERROR
