@@ -1,12 +1,24 @@
 #!/usr/bin/env python3
 """
-import_notable.py - VERSION v1.9.7
+import_notable.py - VERSION v1.9.9
 
 Import Notable Markdown notes into a Zim Desktop Wiki notebook,
 creating raw AI notes with proper Zim metadata, and appending
 links to the Journal pages in chronological order.
 
 Part of the Notable-to-Zim project.
+
+CHANGES IN v1.9.9:
+- Fixed needs_update to handle UTC timestamps in YAML by converting st_mtime to UTC for comparison.
+- Added deduplication of journal links to prevent multiple identical links on the same day.
+- Enhanced logging in needs_update to include UTC and local timestamps with microsecond precision.
+- Kept Pandoc -f markdown-smart and journal link support for updated notes from v1.9.8.
+- No new dependencies required.
+
+CHANGES IN v1.9.8:
+- Fixed Pandoc command by replacing invalid --no-smart with -f markdown-smart to disable smart punctuation.
+- Added debug logging for Pandoc command to aid troubleshooting.
+- Kept journal link support for updated notes from v1.9.7.
 
 CHANGES IN v1.9.7:
 - Added journal link for updated notes based on YAML modified timestamp.
@@ -59,7 +71,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
 from typing import Optional, Tuple, List, Dict, Any
 from enum import Enum
@@ -100,7 +112,7 @@ def set_log_level(level: str) -> None:
 
 def log_message(message: str, level: str = "INFO") -> None:
     """Log message to console (if level >= _log_level) and log file (if available)."""
-    timestamp = datetime.now().isoformat()
+    timestamp = datetime.now(timezone.utc).isoformat()
     formatted_message = f"[{level}] {timestamp} {message}"
     
     # Print to console if level is at or above the configured log level
@@ -217,8 +229,8 @@ def check_pandoc() -> bool:
 def run_pandoc(input_md: Path, output_txt: Path) -> bool:
     """Convert markdown to Zim wiki format using Pandoc."""
     output_txt_str = str(PureWindowsPath(output_txt).as_posix())
-    log_message(f"Running pandoc: input={input_md}, output={output_txt_str}", "DEBUG")
-    cmd = ["pandoc", "-f", "markdown", "-t", "zimwiki", "--no-smart", "-o", output_txt_str, str(input_md)]
+    cmd = ["pandoc", "-f", "markdown-smart", "-t", "zimwiki", "-o", output_txt_str, str(input_md)]
+    log_message(f"Running pandoc command: {' '.join(cmd)}", "DEBUG")
     try:
         result = subprocess.run(cmd, check=True, capture_output=True, text=True)
         log_message(f"Pandoc succeeded for {input_md}", "DEBUG")
@@ -265,7 +277,7 @@ def create_journal_page(page_path: Path) -> bool:
     return True
 
 def append_journal_link(page_path: Path, link_text: str, link_target: str) -> bool:
-    """Append a link to the journal page under AI Notes section."""
+    """Append a link to the journal page under AI Notes section, avoiding duplicates."""
     section_title = "===== AI Notes =====\n"
     
     # Create page if it doesn't exist
@@ -281,8 +293,13 @@ def append_journal_link(page_path: Path, link_text: str, link_target: str) -> bo
         if not append_file(page_path, "\n" + section_title):
             return False
     
-    # Add the link
+    # Check for existing link to avoid duplicates
     link_line = f"* [[{link_target}|{link_text}]]\n"
+    if link_line in content:
+        log_message(f"Journal link already exists in {page_path}: {link_line.strip()}", "DEBUG")
+        return True
+    
+    # Add the link
     if append_file(page_path, link_line):
         print(f"Appended link to journal: {page_path.name}")
         return True
@@ -330,15 +347,20 @@ def remove_duplicate_heading(content: str, title: str, file_stem: str) -> str:
     return content.strip()
 
 def parse_timestamp(timestamp: Any) -> Optional[datetime]:
-    """Parse ISO 8601 timestamp or datetime object from YAML, return None if invalid."""
+    """Parse ISO 8601 timestamp or datetime object from YAML, preserving UTC timezone."""
     if isinstance(timestamp, datetime):
-        # Already a datetime object, make it offset-naive
-        return timestamp.replace(tzinfo=None)
+        # Ensure UTC timezone
+        if timestamp.tzinfo is None:
+            return timestamp.replace(tzinfo=timezone.utc)
+        return timestamp.astimezone(timezone.utc)
     if isinstance(timestamp, str):
         try:
             parsed = dateutil_parser.isoparse(timestamp)
-            # Convert to offset-naive for consistency
-            return parsed.replace(tzinfo=None)
+            # Ensure UTC timezone
+            if parsed.tzinfo is None:
+                log_warning(f"Timestamp '{timestamp}' lacks timezone, assuming UTC")
+                return parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
         except (ValueError, TypeError) as e:
             log_warning(f"Failed to parse timestamp string '{timestamp}': {e}")
             return None
@@ -346,33 +368,38 @@ def parse_timestamp(timestamp: Any) -> Optional[datetime]:
     return None
 
 def get_file_date(md_path: Path, metadata: Dict[str, Any], key: str = 'created') -> datetime:
-    """Get the specified date (created or modified) from YAML metadata, fall back to filesystem."""
+    """Get the specified date (created or modified) from YAML metadata in UTC, fall back to filesystem."""
     date_value = metadata.get(key)
     if date_value is not None:
         parsed = parse_timestamp(date_value)
         if parsed:
+            log_message(f"Using YAML {key} timestamp {parsed.isoformat()} for {md_path}", "DEBUG")
             return parsed
         log_warning(f"No valid '{key}' timestamp '{date_value}' in {md_path}, using filesystem {key} time")
     else:
         log_warning(f"No '{key}' field in {md_path}, using filesystem {key} time")
     try:
+        # Get filesystem time and convert to UTC
         if key == 'created' and hasattr(os.stat_result, 'st_birthtime'):
             # macOS
-            return datetime.fromtimestamp(md_path.stat().st_birthtime)
+            file_time = datetime.fromtimestamp(md_path.stat().st_birthtime, tz=timezone.utc)
         elif key == 'created' and sys.platform == 'win32':
             # Windows - use creation time
-            return datetime.fromtimestamp(md_path.stat().st_ctime)
+            file_time = datetime.fromtimestamp(md_path.stat().st_ctime, tz=timezone.utc)
         else:
             # Linux/Unix or modified - use modification time
-            return datetime.fromtimestamp(md_path.stat().st_mtime)
+            file_time = datetime.fromtimestamp(md_path.stat().st_mtime, tz=timezone.utc)
+        log_message(f"Using filesystem {key} timestamp {file_time.isoformat()} for {md_path}", "DEBUG")
+        return file_time
     except Exception:
-        # Fallback to current time
-        log_warning(f"Could not get filesystem {key} timestamp for {md_path}, using current time")
-        return datetime.now()
+        # Fallback to current time in UTC
+        log_warning(f"Could not get filesystem {key} timestamp for {md_path}, using current UTC time")
+        return datetime.now(timezone.utc)
 
 def needs_update(source_path: Path, dest_path: Path, metadata: Dict[str, Any]) -> bool:
-    """Check if source file's YAML modified timestamp is newer than destination file."""
+    """Check if source file's YAML modified timestamp (UTC) is newer than destination file's mtime (UTC)."""
     if not dest_path.exists():
+        log_message(f"Destination file {dest_path} does not exist, needs update", "DEBUG")
         return True
     
     modified = metadata.get('modified')
@@ -380,7 +407,9 @@ def needs_update(source_path: Path, dest_path: Path, metadata: Dict[str, Any]) -
         parsed = parse_timestamp(modified)
         if parsed:
             try:
-                dest_mtime = datetime.fromtimestamp(dest_path.stat().st_mtime)
+                # Convert destination file's mtime to UTC
+                dest_mtime = datetime.fromtimestamp(dest_path.stat().st_mtime, tz=timezone.utc)
+                log_message(f"Comparing YAML modified timestamp {parsed.isoformat()} (UTC) with dest_mtime {dest_mtime.isoformat()} (UTC) for {source_path}", "DEBUG")
                 return parsed > dest_mtime
             except Exception as e:
                 log_warning(f"Could not compare file times for {source_path}: {e}")
@@ -389,10 +418,11 @@ def needs_update(source_path: Path, dest_path: Path, metadata: Dict[str, Any]) -
     else:
         log_warning(f"No 'modified' field in {source_path}, using filesystem check")
     
-    # Fallback to always skip if dest_path exists to prevent duplicates
+    # Fallback to filesystem mtime comparison, both in UTC
     try:
-        source_mtime = datetime.fromtimestamp(source_path.stat().st_mtime)
-        dest_mtime = datetime.fromtimestamp(dest_path.stat().st_mtime)
+        source_mtime = datetime.fromtimestamp(source_path.stat().st_mtime, tz=timezone.utc)
+        dest_mtime = datetime.fromtimestamp(dest_path.stat().st_mtime, tz=timezone.utc)
+        log_message(f"Comparing filesystem source_mtime {source_mtime.isoformat()} (UTC) with dest_mtime {dest_mtime.isoformat()} (UTC) for {source_path}", "DEBUG")
         return source_mtime > dest_mtime
     except Exception as e:
         log_warning(f"Could not compare filesystem times for {source_path}: {e}")
@@ -491,7 +521,7 @@ def import_md_file(md_path: Path, raw_store: Path, journal_root: Path,
         
         # Append link to journal
         if append_journal_link(journal_page, title, f"raw_ai_notes:{slug}"):
-            log_message(f"Added journal link for {md_path} to {journal_page} (based on {journal_date_key} timestamp)", "DEBUG")
+            log_message(f"Added journal link for {md_path} to {journal_page} (based on {journal_date_key} timestamp {journal_ts.isoformat()})", "DEBUG")
         else:
             log_warning(f"Failed to add journal link for {md_path} to {journal_page}")
         
@@ -570,7 +600,7 @@ def main():
             log_file = Path(args.log_file).expanduser().resolve()
             if not args.dry_run:
                 ensure_dir(log_file.parent)
-                append_file(log_file, f"\n=== Import session started at {datetime.now().isoformat()} ===\n")
+                append_file(log_file, f"\n=== Import session started at {datetime.now(timezone.utc).isoformat()} ===\n")
         
         # Set global log file for error logging
         set_log_file(log_file)
@@ -669,7 +699,7 @@ def main():
         
         if log_file and not args.dry_run:
             summary = (
-                f"\n=== Import session completed at {datetime.now().isoformat()} ===\n"
+                f"\n=== Import session completed at {datetime.now(timezone.utc).isoformat()} ===\n"
                 f"Total: {len(md_files)}, Success: {success_count}, "
                 f"Skipped: {skip_count}, Errors: {error_count}\n"
             )
