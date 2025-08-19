@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-import_notable.py - VERSION v1.9.12
+import_notable.py - VERSION v1.9.15
 
 Import Notable Markdown notes into a Zim Desktop Wiki notebook,
 creating raw AI notes with proper Zim metadata, and appending
@@ -8,23 +8,23 @@ links to the Journal pages in chronological order under a specified section.
 
 Part of the Notable-to-Zim project.
 
-CHANGES IN v1.9.12:
-- Restored section_title parameter in append_journal_link (default: 'AI Notes') to organize journal links under a section (e.g., ===== AI Notes =====).
-- Updated import_md_file to pass section_title to append_journal_link.
-- Updated test_append_journal_link to verify sectioned journal links.
-- Kept [Errno 2] fix for non-existent journal pages from v1.9.11.
-- Carried over v1.9.11 reversion of validate_paths for simplicity.
+CHANGES IN v1.9.15:
+- Fixed tags placement in create_zim_note to append tags at the end of the content.
+- Fixed duplicate titles in Zim notes by improving remove_duplicate_heading regex to handle quotes and special characters in Pandoc zimwiki output.
+- Updated test_create_zim_note to verify tags at the end of the note.
+- Updated test_remove_duplicate_heading to test titles with quotes and Pandoc-style headings.
+- Kept note_path fix, journal title format 'Tuesday DD Mon YYYY', section_title='AI Notes', and [Errno 2] fix from v1.9.14 and earlier.
 
-CHANGES IN v1.9.11:
-- Fixed append_journal_link to check for page existence before reading, avoiding [Errno 2] No such file or directory errors.
-- Reverted validate_paths function and restored inline path checks in main for simplicity.
+CHANGES IN v1.9.14:
+- Fixed NameError in import_md_file by replacing incorrect 'note_path' with 'note_file' in create_zim_note call.
+- Updated test_import_md_file to include a real create_zim_note call to catch variable errors.
 
-CHANGES IN v1.9.10:
-- Enhanced needs_update with explicit conditional logging for YAML and filesystem timestamp comparisons.
-- Removed redundant debug logs in get_file_date for cleaner output.
-- Simplified journal link debug log in import_md_file.
-- Ensured compatibility with test_import_notable.py, fixing 12 test failures.
-- No new dependencies required.
+CHANGES IN v1.9.13:
+- Fixed journal page titles to use format 'Tuesday DD Mon YYYY' (e.g., 'Tuesday 18 Aug 2025') instead of 'Journal DD'.
+- Added format_journal_title helper to parse date from page_path or journal_date.
+- Updated create_journal_page and append_journal_link to use formatted titles.
+- Updated import_md_file to pass journal_ts to append_journal_link for title formatting.
+- Updated tests to verify correct journal page titles.
 
 See CHANGELOG.md for historical changes (v1.8–v1.9.9).
 Dependencies: python-dateutil, pyyaml==6.0.1, pandoc
@@ -215,20 +215,36 @@ def zim_header(title: str) -> str:
         f"====== {title} ======\n"
     )
 
-def create_journal_page(page_path: Path) -> bool:
-    """Create a new journal page with a Zim header."""
-    return write_file(page_path, zim_header(f"Journal {page_path.stem}"))
+def format_journal_title(page_path: Path = None, journal_date: datetime = None) -> str:
+    """Format journal title as 'Tuesday DD Mon YYYY' from page_path or journal_date."""
+    if journal_date:
+        return journal_date.strftime("%A %d %b %Y")
+    try:
+        # Extract date from page_path like Journal/YYYY/MM/DD.txt
+        parts = page_path.parts
+        year, month, day = parts[-3], parts[-2], parts[-1].replace(".txt", "")
+        date = datetime(int(year), int(month), int(day))
+        return date.strftime("%A %d %b %Y")
+    except (IndexError, ValueError):
+        log_error(f"Could not parse date from {page_path}, using fallback title")
+        return f"Journal {page_path.stem}"
 
-def append_journal_link(page_path: Path, title: str, link: str, section_title: str = "AI Notes") -> bool:
+def create_journal_page(page_path: Path) -> bool:
+    """Create a new journal page with a formatted title."""
+    title = format_journal_title(page_path=page_path)
+    return write_file(page_path, zim_header(title))
+
+def append_journal_link(page_path: Path, title: str, link: str, journal_date: datetime = None, section_title: str = "AI Notes") -> bool:
     """Append a journal link to a page under a specified section, avoiding duplicates."""
     section_header = f"===== {section_title} ====="
     link_line = f"* [[{link}|{title}]]\n"
+    title = format_journal_title(page_path=page_path, journal_date=journal_date)
     if not page_path.exists():
-        content = zim_header(f"Journal {page_path.stem}") + f"\n{section_header}\n{link_line}"
+        content = zim_header(title) + f"\n{section_header}\n{link_line}"
         return write_file(page_path, content)
     content = read_file(page_path)
     if not content:
-        content = zim_header(f"Journal {page_path.stem}") + f"\n{section_header}\n{link_line}"
+        content = zim_header(title) + f"\n{section_header}\n{link_line}"
         return write_file(page_path, content)
     if link_line.strip() in content.splitlines():
         return True
@@ -253,19 +269,24 @@ def append_journal_link(page_path: Path, title: str, link: str, section_title: s
     return False
 
 def create_zim_note(note_path: Path, title: str, content: str, tags: List[str]) -> bool:
-    """Create a Zim note with proper formatting and tags."""
+    """Create a Zim note with proper formatting and tags at the end."""
     content = remove_duplicate_heading(content, title, note_path.stem)
     tags_str = "".join(f" @tag:{tag}" for tag in tags)
     header = zim_header(title)
-    full_content = f"{header}{tags_str}\n{content}\n" if tags else f"{header}\n{content}\n"
+    full_content = f"{header}\n{content}\n{tags_str}\n" if tags else f"{header}\n{content}\n"
     return write_file(note_path, full_content)
 
 def remove_duplicate_heading(content: str, title: str, slug: str) -> str:
-    """Remove duplicate heading if it matches title or slug."""
-    title_clean = re.sub(r"[^\w\s-]", "", title.lower()).strip()
-    slug_clean = re.sub(r"[^\w\s-]", "", slug.lower()).strip()
+    """Remove duplicate heading if it matches title or slug, handling special characters."""
+    # Normalize title and slug, preserving quotes and apostrophes
+    title_clean = title.strip()
+    slug_clean = slug.replace("_", " ").strip()
+    # Escape special regex characters, but keep quotes and apostrophes
+    title_escaped = re.escape(title_clean).replace(r"\'", "'")
+    slug_escaped = re.escape(slug_clean).replace(r"\'", "'")
+    # Match Zim Wiki level 1 heading (======) with flexible whitespace and case
     heading_pattern = re.compile(
-        r"^======\s*({}|{})\s*======\s*\n".format(re.escape(title_clean), re.escape(slug_clean)),
+        r"^======\s*({}|{})\s*======\s*\n".format(title_escaped, slug_escaped),
         re.MULTILINE | re.IGNORECASE
     )
     return heading_pattern.sub("", content).strip()
@@ -361,7 +382,7 @@ def import_md_file(md_file: Path, raw_dir: Path, journal_dir: Path, log_file: Op
     day = journal_ts.strftime("%d")
     journal_page = journal_dir / year / month / f"{day}.txt"
     
-    if not append_journal_link(journal_page, title, f"raw_ai_notes:{slug}", section_title="AI Notes"):
+    if not append_journal_link(journal_page, title, f"raw_ai_notes:{slug}", journal_date=journal_ts, section_title="AI Notes"):
         log_error(f"Failed to append journal link for {note_file.name}")
         return ImportStatus.ERROR
     
