@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """
-import_notable.py - VERSION v1.9.6
+import_notable.py - VERSION v1.9.7
 
 Import Notable Markdown notes into a Zim Desktop Wiki notebook,
 creating raw AI notes with proper Zim metadata, and appending
 links to the Journal pages in chronological order.
 
 Part of the Notable-to-Zim project.
+
+CHANGES IN v1.9.7:
+- Added journal link for updated notes based on YAML modified timestamp.
+- Enhanced logging to track journal link additions for updated notes.
+- Kept slugify base_slug check and duplicate heading fix from v1.9.6.
 
 CHANGES IN v1.9.6:
 - Fixed persistent duplicate heading by explicitly handling curly apostrophes in remove_duplicate_heading.
@@ -213,7 +218,7 @@ def run_pandoc(input_md: Path, output_txt: Path) -> bool:
     """Convert markdown to Zim wiki format using Pandoc."""
     output_txt_str = str(PureWindowsPath(output_txt).as_posix())
     log_message(f"Running pandoc: input={input_md}, output={output_txt_str}", "DEBUG")
-    cmd = ["pandoc", "-f", "markdown", "-t", "zimwiki", "-o", output_txt_str, str(input_md)]
+    cmd = ["pandoc", "-f", "markdown", "-t", "zimwiki", "--no-smart", "-o", output_txt_str, str(input_md)]
     try:
         result = subprocess.run(cmd, check=True, capture_output=True, text=True)
         log_message(f"Pandoc succeeded for {input_md}", "DEBUG")
@@ -340,29 +345,29 @@ def parse_timestamp(timestamp: Any) -> Optional[datetime]:
     log_warning(f"Invalid timestamp type '{type(timestamp)}' for value: {timestamp}")
     return None
 
-def get_file_date(md_path: Path, metadata: Dict[str, Any]) -> datetime:
-    """Get the creation date from YAML metadata, fall back to filesystem."""
-    created = metadata.get('created')
-    if created is not None:
-        parsed = parse_timestamp(created)
+def get_file_date(md_path: Path, metadata: Dict[str, Any], key: str = 'created') -> datetime:
+    """Get the specified date (created or modified) from YAML metadata, fall back to filesystem."""
+    date_value = metadata.get(key)
+    if date_value is not None:
+        parsed = parse_timestamp(date_value)
         if parsed:
             return parsed
-        log_warning(f"No valid 'created' timestamp '{created}' in {md_path}, using filesystem creation time")
+        log_warning(f"No valid '{key}' timestamp '{date_value}' in {md_path}, using filesystem {key} time")
     else:
-        log_warning(f"No 'created' field in {md_path}, using filesystem creation time")
+        log_warning(f"No '{key}' field in {md_path}, using filesystem {key} time")
     try:
-        if hasattr(os.stat_result, 'st_birthtime'):
+        if key == 'created' and hasattr(os.stat_result, 'st_birthtime'):
             # macOS
             return datetime.fromtimestamp(md_path.stat().st_birthtime)
-        elif sys.platform == 'win32':
+        elif key == 'created' and sys.platform == 'win32':
             # Windows - use creation time
             return datetime.fromtimestamp(md_path.stat().st_ctime)
         else:
-            # Linux/Unix - use modification time
+            # Linux/Unix or modified - use modification time
             return datetime.fromtimestamp(md_path.stat().st_mtime)
     except Exception:
         # Fallback to current time
-        log_warning(f"Could not get filesystem timestamp for {md_path}, using current time")
+        log_warning(f"Could not get filesystem {key} timestamp for {md_path}, using current time")
         return datetime.now()
 
 def needs_update(source_path: Path, dest_path: Path, metadata: Dict[str, Any]) -> bool:
@@ -476,23 +481,24 @@ def import_md_file(md_path: Path, raw_store: Path, journal_root: Path,
                 except Exception as e:
                     log_warning(f"Could not delete temporary file {temp_md}: {e}")
         
-        # Only add journal link for new files
-        if is_new_file:
-            # Determine journal page by file creation date
-            created_ts = get_file_date(md_path, metadata)
-            year = created_ts.strftime("%Y")
-            month = created_ts.strftime("%m")
-            day = created_ts.strftime("%d")
-            journal_page = journal_root / year / month / f"{day}.txt"
-            
-            # Append link to journal
-            if not append_journal_link(journal_page, title, f"raw_ai_notes:{slug}"):
-                log_warning(f"Failed to add journal link for {md_path}")
+        # Add journal link based on creation date for new files or modified date for updates
+        journal_date_key = 'created' if is_new_file else 'modified'
+        journal_ts = get_file_date(md_path, metadata, journal_date_key)
+        year = journal_ts.strftime("%Y")
+        month = journal_ts.strftime("%m")
+        day = journal_ts.strftime("%d")
+        journal_page = journal_root / year / month / f"{day}.txt"
+        
+        # Append link to journal
+        if append_journal_link(journal_page, title, f"raw_ai_notes:{slug}"):
+            log_message(f"Added journal link for {md_path} to {journal_page} (based on {journal_date_key} timestamp)", "DEBUG")
+        else:
+            log_warning(f"Failed to add journal link for {md_path} to {journal_page}")
         
         # Log if requested
         if log_file:
             status = "NEW" if is_new_file else "UPDATED"
-            log_entry = f"{status}: Processed {md_path} -> {note_file} (Title: {title}, Tags: {tags})\n"
+            log_entry = f"{status}: Processed {md_path} -> {note_file} (Title: {title}, Tags: {tags}, Journal: {journal_page})\n"
             append_file(log_file, log_entry)
         
         return ImportStatus.SUCCESS
@@ -625,11 +631,20 @@ def main():
                 title = metadata.get('title', md_file.stem)
                 slug = slugify(title, raw_store, used_slugs)
                 note_file = raw_store / f"{slug}.txt"
-                if note_file.exists():
-                    print(f"  Would skip (already exists): {note_file.name}")
+                is_new_file = not note_file.exists()
+                needs_reimport = needs_update(md_file, note_file, metadata)
+                journal_date_key = 'created' if is_new_file else 'modified'
+                journal_ts = get_file_date(md_file, metadata, journal_date_key)
+                year = journal_ts.strftime("%Y")
+                month = journal_ts.strftime("%m")
+                day = journal_ts.strftime("%d")
+                journal_page = journal_root / year / month / f"{day}.txt"
+                if note_file.exists() and not needs_reimport:
+                    print(f"  Would skip (already exists and up-to-date): {note_file.name}")
                     skip_count += 1
                 else:
                     print(f"  Would import as: {note_file.name}")
+                    print(f"  Would add journal link to: {journal_page}")
                     success_count += 1
             else:
                 result = import_md_file(md_file, raw_store, journal_root, log_file, temp_dir, used_slugs)
