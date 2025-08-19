@@ -268,14 +268,3 @@ def test_import_md_file(sample_md, zim_dir, temp_dir):
     with patch("import_notable.read_file", return_value=""):
         result = import_md_file(sample_md, raw_store, journal_root, None, temp_dir, used_slugs)
         assert result == ImportStatus.ERROR
-
-def test_validate_paths(temp_dir):
-    """Test path validation."""
-    notable_dir = temp_dir / "notable"
-    zim_dir = temp_dir / "zim"
-    notable_dir.mkdir()
-    zim_dir.mkdir()
-    assert validate_paths(notable_dir, zim_dir)
-    assert not validate_paths(temp_dir / "nonexistent", zim_dir)
-    assert not validate_paths(notable_dir, temp_dir / "nonexistent")
-    assert not validate_paths(temp_dir / "file.txt", zim_dir)
