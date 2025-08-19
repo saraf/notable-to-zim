@@ -55,10 +55,25 @@ def zim_dir(temp_dir):
 # Add the missing mock_datetime fixture
 @pytest.fixture
 def mock_datetime():
-    """Mock datetime for consistent testing."""
+    """Mock specific datetime methods while preserving the datetime class."""
+    # We need to preserve the actual datetime class for isinstance checks
+    original_datetime = datetime
+    
     with patch('import_notable.datetime') as mock_dt:
-        mock_dt.now.return_value = datetime(2023, 10, 4, tzinfo=timezone.utc)
-        mock_dt.fromtimestamp.return_value = datetime(2023, 10, 3, tzinfo=timezone.utc)
+        # Preserve the original datetime class for isinstance checks
+        mock_dt.side_effect = lambda *args, **kwargs: original_datetime(*args, **kwargs)
+        mock_dt.__class__ = original_datetime
+        
+        # Mock specific methods we need
+        mock_dt.now.return_value = original_datetime(2023, 10, 4, tzinfo=timezone.utc)
+        mock_dt.fromtimestamp.return_value = original_datetime(2023, 10, 3, tzinfo=timezone.utc)
+        
+        # Ensure isinstance works correctly
+        def isinstance_patch(obj, cls):
+            if cls is mock_dt:
+                return isinstance(obj, original_datetime)
+            return isinstance(obj, cls)
+        
         yield mock_dt
 
 def test_set_log_file(temp_dir):
