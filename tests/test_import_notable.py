@@ -52,30 +52,29 @@ def zim_dir(temp_dir):
     raw_store.mkdir(parents=True)
     return zim_root
 
-# Add the missing mock_datetime fixture
 @pytest.fixture
 def mock_datetime():
-    """Mock specific datetime methods while preserving the datetime class."""
-    # We need to preserve the actual datetime class for isinstance checks
+    """Mock datetime module while preserving isinstance functionality."""
     original_datetime = datetime
     
-    with patch('import_notable.datetime') as mock_dt:
-        # Preserve the original datetime class for isinstance checks
-        mock_dt.side_effect = lambda *args, **kwargs: original_datetime(*args, **kwargs)
-        mock_dt.__class__ = original_datetime
+    # Create a mock datetime class that behaves like the original for isinstance
+    class MockDatetimeClass(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return original_datetime(2023, 10, 4, tzinfo=timezone.utc)
         
-        # Mock specific methods we need
-        mock_dt.now.return_value = original_datetime(2023, 10, 4, tzinfo=timezone.utc)
-        mock_dt.fromtimestamp.return_value = original_datetime(2023, 10, 3, tzinfo=timezone.utc)
+        @classmethod
+        def fromtimestamp(cls, timestamp, tz=None):
+            return original_datetime(2023, 10, 3, tzinfo=timezone.utc)
+    
+    # Copy all the original datetime attributes to our mock
+    for attr_name in dir(original_datetime):
+        if not hasattr(MockDatetimeClass, attr_name):
+            setattr(MockDatetimeClass, attr_name, getattr(original_datetime, attr_name))
+    
+    with patch('import_notable.datetime', MockDatetimeClass):
+        yield MockDatetimeClass
         
-        # Ensure isinstance works correctly
-        def isinstance_patch(obj, cls):
-            if cls is mock_dt:
-                return isinstance(obj, original_datetime)
-            return isinstance(obj, cls)
-        
-        yield mock_dt
-
 def test_set_log_file(temp_dir):
     """Test setting the global log file."""
     log_file = temp_dir / "test.log"
@@ -247,9 +246,8 @@ def test_parse_timestamp():
 
 def test_get_file_date(mock_datetime, sample_md):
     """Test getting file creation/modified dates."""
-    # Setup mock datetime returns
-    mock_datetime.fromtimestamp.return_value = datetime(2023, 10, 3, tzinfo=timezone.utc)
-    mock_datetime.now.return_value = datetime(2023, 10, 4, tzinfo=timezone.utc)
+    # The mock_datetime fixture already sets up the return values
+    # No need to modify mock_datetime.fromtimestamp.return_value
     
     # Test with valid metadata
     metadata = {"created": "2023-10-01T12:00:00Z"}
@@ -265,7 +263,7 @@ def test_get_file_date(mock_datetime, sample_md):
     metadata = {}
     result = get_file_date(sample_md, metadata, "created")
     assert result == datetime(2023, 10, 3, tzinfo=timezone.utc)
-
+    
 def test_needs_update(sample_md, temp_dir):
     """Test checking if a file needs updating."""
     dest_path = temp_dir / "test_note.txt"
