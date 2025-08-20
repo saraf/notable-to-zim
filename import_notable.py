@@ -268,10 +268,43 @@ def append_journal_link(page_path: Path, title: str, link: str, journal_date: da
         return write_file(page_path, content)
     return False
 
+def create_tag_string_for_zim(tags: List[str]) -> str:
+    """
+    Build Zim tag string: underscores replace invalid chars; 
+    slashes keep only last part; 
+    empty tags ignored. 
+    Returns '@tag1 @tag2 ...' or ''.
+    """
+    if not tags:
+        return ""
+    cleaned_tags = []
+    for tag in tags:
+        if not tag:
+            continue
+        # If slash is present, use only last part
+        if '/' in tag:
+            tag = tag.split('/')[-1]
+        # Replace special characters and formatting
+        tag = re.sub(r"[\'\"]", "", tag)  # Remove quotes and apostrophes
+        tag = unicodedata.normalize("NFKD", tag)  # Normalize unicode characters
+        tag = tag.strip()  # Remove leading/trailing whitespace
+
+        tag = re.sub(r"[\'\"\.\,\:\;\?\!\+\&\$\%\#\\\*]", "_", tag)  # Replace listed special chars with underscore
+        tag = tag.replace("-", "_").replace(" ", "_").replace("'", "_")
+        tag = re.sub(r"[^A-Za-z0-9_]", "", tag)  # Remove any remaining non-alphanumeric/underscore chars
+
+        #Only add the tag if it contains at least one alphanumeric character
+        if tag and re.search(r"[A-Za-z0-9]", tag):  
+            cleaned_tags.append(f"@{tag}")
+    if not cleaned_tags:
+        return ""
+    else:
+        return " ".join(cleaned_tags)
+
 def create_zim_note(note_path: Path, title: str, content: str, tags: List[str]) -> bool:
     """Create a Zim note with proper formatting and tags at the end."""
     content = remove_duplicate_heading(content, title, note_path.stem)
-    tags_str = "".join(f" @tag:{tag}" for tag in tags)
+    tags_str = create_tag_string_for_zim(tags)
     header = zim_header(title)
     full_content = f"{header}\n{content}\n{tags_str}\n" if tags else f"{header}\n{content}\n"
     return write_file(note_path, full_content)
@@ -344,6 +377,7 @@ def import_md_file(md_file: Path, raw_dir: Path, journal_dir: Path, log_file: Op
     body, metadata = parse_yaml_front_matter(content)
     title = metadata.get("title", md_file.stem)
     tags = metadata.get("tags", [])
+    # log_warning(f"Processing {md_file.name} with title '{title}' and zzzztags: {tags}")
     
     slug = slugify(title, raw_dir, used_slugs)
     note_file = raw_dir / f"{slug}.txt"
@@ -357,6 +391,7 @@ def import_md_file(md_file: Path, raw_dir: Path, journal_dir: Path, log_file: Op
     temp_input = temp_dir / f"{slug}.md"
     temp_output = temp_dir / f"{slug}.txt"
     write_file(temp_input, body)
+    # log_message(f"DEBUG: Writing to temp file for Pandoc:\n{body[:500]}...", "DEBUG")
     
     if not run_pandoc(temp_input, temp_output):
         log_error(f"Failed to convert {md_file.name} with Pandoc")
