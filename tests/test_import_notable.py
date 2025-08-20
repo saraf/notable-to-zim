@@ -226,7 +226,7 @@ def test_create_zim_note(temp_dir):
     assert create_zim_note(note_path, "Test", "Content", ["tag1", "tag2"])
     content = note_path.read_text(encoding="utf-8")
     assert "Content-Type: text/x-zim-wiki" in content
-    assert "@tag:tag1 @tag:tag2" in content
+    assert "@tag1 @tag2" in content
     assert "Content" in content
 
 def test_remove_duplicate_heading():
