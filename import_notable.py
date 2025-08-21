@@ -368,6 +368,24 @@ def needs_update(md_file: Path, note_file: Path, metadata: Dict[str, Any]) -> bo
         log_error(f"Cannot access timestamp for {note_file}: {e}")
         return True
 
+def format_journal_link(date: datetime, link_type: str = "Created") -> str:
+    """
+    Format a journal link for insertion into Zim notes.
+    
+    Args:
+        date: The datetime object for the journal date
+        link_type: Type of link ("Created" or "Modified")
+    
+    Returns:
+        Formatted journal link string
+    """
+    if not date:
+        return ""
+    formatted_date = date.strftime("%Y:%m:%d")
+    return f"[[Journal:{formatted_date}|{link_type} on {date.strftime('%B %d %Y')}]]"
+
+# ------------------------ End Helper Functions ------------------------
+
 def import_md_file(md_file: Path, raw_dir: Path, journal_dir: Path, log_file: Optional[Path], temp_dir: Path, used_slugs: set) -> ImportStatus:
     """Import a single Markdown file into the Zim notebook."""
     content = read_file(md_file)
