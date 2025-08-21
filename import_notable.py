@@ -381,9 +381,27 @@ def format_journal_link(date: datetime, link_type: str = "Created") -> str:
     """
     if not date:
         return ""
-    formatted_date = date.strftime("%Y:%m:%d")
-    return f"[[Journal:{formatted_date}|{link_type} on {date.strftime('%B %d %Y')}]]"
-
+    
+    if not isinstance(date, datetime):
+        log_error(f"Invalid date type: {type(date)}. Expected datetime.")
+        return ""
+    if date.tzinfo is None:
+        log_error("Date must have timezone info. Assuming UTC.")
+        date = date.replace(tzinfo=timezone.utc)
+    if link_type is None:
+        link_type = "Created"
+    elif not link_type.strip():
+        link_type = ""
+    
+    try:
+        formatted_date = date.strftime("%Y:%m:%d")
+        journal_path = f"Journal:{formatted_date}"
+        display_text = f"{link_type} on {date.strftime('%B %d %Y')}"
+        return f"[[{journal_path}|{display_text}]]"
+    except (ValueError, TypeError) as e:
+        log_error(f"Error formatting journal link: {e}")
+        return ""
+    
 # ------------------------ End Helper Functions ------------------------
 
 def import_md_file(md_file: Path, raw_dir: Path, journal_dir: Path, log_file: Optional[Path], temp_dir: Path, used_slugs: set) -> ImportStatus:
