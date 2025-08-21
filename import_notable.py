@@ -402,6 +402,40 @@ def format_journal_link(date: datetime, link_type: str = "Created") -> str:
         log_error(f"Error formatting journal link: {e}")
         return ""
     
+def create_journal_links_section(created_date: Optional[datetime], modified_date: Optional[datetime]) -> str:
+    """
+    Create a journal links section for Zim notes.
+
+    Args:
+        created_date: Creation date of the note
+        modified_date: Modification date of the note
+
+    Returns:
+        Formatted journal links section or empty string if no valid dates
+    """
+    links = []
+    
+    # Add created link if we have a valid created date
+    created_link = format_journal_link(created_date, "Created")
+    if created_link:
+        links.append(created_link)
+    
+    # Add modified link only if:
+    # 1. We have a valid modified date
+    # 2. It's different from the created date (to avoid duplicates)
+    if modified_date and modified_date != created_date:
+        modified_link = format_journal_link(modified_date, "Modified")
+        if modified_link:
+            links.append(modified_link)
+    
+    # Return empty string if no valid links
+    if not links:
+        return ""
+    
+    # Create the formatted section
+    section_content = "\n".join(f"* {link}" for link in links)
+    return f"\n**Journal Links:**\n{section_content}\n"
+
 # ------------------------ End Helper Functions ------------------------
 
 def import_md_file(md_file: Path, raw_dir: Path, journal_dir: Path, log_file: Optional[Path], temp_dir: Path, used_slugs: set) -> ImportStatus:

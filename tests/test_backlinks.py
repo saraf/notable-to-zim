@@ -7,6 +7,7 @@ import pytest
 from datetime import datetime, timezone
 from import_notable import format_journal_link
 
+# -------------- Test Cases for format_journal_link Function --------
 def test_format_journal_link_created():
     """Test formatting a created journal link."""
     date = datetime(2025, 8, 18, 11, 21, 28, tzinfo=timezone.utc)
@@ -112,5 +113,6 @@ def test_format_journal_link_extreme_dates():
     expected = "[[Journal:2099:12:31|Created on December 31 2099]]"
     assert result == expected
 
+# ------------------------ End Test Cases ------------------------
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
