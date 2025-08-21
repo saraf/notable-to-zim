@@ -186,7 +186,7 @@ def run_pandoc(input_path: Path, output_path: Path) -> bool:
         subprocess.run(
             [
                 "pandoc",
-                "-f", "markdown-smart+lists_without_preceding_blankline",
+                "-f", "markdown-smart-yaml_metadata_block+lists_without_preceding_blankline",
                 "-t", "zimwiki",
                 str(input_path),
                 "-o", str(output_path)
