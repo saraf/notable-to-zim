@@ -126,6 +126,33 @@ def log_debug(message: str) -> None:
 
 
 # ------------------------ Helper Functions ------------------------
+
+
+def utc_to_local(utc_dt: datetime) -> datetime:
+    """
+    Convert UTC datetime to local datetime.
+
+    Args:
+        utc_dt: UTC datetime object
+
+    Returns:
+        Local datetime object
+    """
+    if not utc_dt:
+        return utc_dt
+
+    # If no timezone info, assume UTC
+    if utc_dt.tzinfo is None:
+        utc_dt = utc_dt.replace(tzinfo=timezone.utc)
+
+    # Convert to local timezone, handling dates outside system's timezone
+    try:
+        return utc_dt.astimezone()
+    except (ValueError, OverflowError, OSError) as e:
+        log_warning(f"Failed to convert UTC to local time: {e}")
+        return utc_dt.replace(tzinfo=None)  # Return naive datetime if conversion fails
+
+
 def slugify(s: str, dest_dir: Path, used_slugs: set) -> str:
     """Convert string to a valid filename slug, handling duplicates."""
     base_slug = s.lower()
@@ -487,18 +514,16 @@ def format_journal_link(date: datetime, link_type: str = "Created") -> str:
     if not isinstance(date, datetime):
         log_error(f"Invalid date type: {type(date)}. Expected datetime.")
         return ""
-    if date.tzinfo is None:
-        log_error("Date must have timezone info. Assuming UTC.")
-        date = date.replace(tzinfo=timezone.utc)
     if link_type is None:
         link_type = "Created"
     elif not link_type.strip():
         link_type = ""
 
+    local_date = utc_to_local(date)
     try:
-        formatted_date = date.strftime("%Y:%m:%d")
+        formatted_date = local_date.strftime("%Y:%m:%d")
         journal_path = f"Journal:{formatted_date}"
-        display_text = f"{link_type} on {date.strftime('%B %d %Y')}"
+        display_text = f"{link_type} on {local_date.strftime('%B %d %Y')}"
         return f"[[{journal_path}|{display_text}]]"
     except (ValueError, TypeError) as e:
         log_error(f"Error formatting journal link: {e}")
