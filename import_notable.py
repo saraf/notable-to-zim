@@ -123,7 +123,8 @@ def log_warning(message: str) -> None:
 def log_debug(message: str) -> None:
     """Log debug message."""
     log_message(message, "DEBUG")
-    
+
+
 # ------------------------ Helper Functions ------------------------
 def slugify(s: str, dest_dir: Path, used_slugs: set) -> str:
     """Convert string to a valid filename slug, handling duplicates."""
@@ -357,14 +358,47 @@ def create_tag_string_for_zim(tags: List[str]) -> str:
         return " ".join(cleaned_tags)
 
 
-def create_zim_note(note_path: Path, title: str, content: str, tags: List[str]) -> bool:
-    """Create a Zim note with proper formatting and tags at the end."""
+def create_zim_note(
+    note_path: Path,
+    title: str,
+    content: str,
+    tags: List[str],
+    created_date: Optional[datetime] = None,
+    modified_date: Optional[datetime] = None,
+) -> bool:
+    """
+    Create a Zim note with proper formatting, tags at the end, and optional journal links.
+
+    Args:
+        note_path: Path where the note will be created
+        title: Title of the note
+        content: Main content of the note
+        tags: List of tags for the note
+        created_date: Creation date for journal link (optional)
+        modified_date: Modification date for journal link (optional)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    # Remove duplicate heading
     content = remove_duplicate_heading(content, title, note_path.stem)
+
+    # Create journal links section if we have valid dates
+    journal_links = create_journal_links_section(created_date, modified_date)
+
+    # Create tags string
     tags_str = create_tag_string_for_zim(tags)
+
+    # Assemble the full content
     header = zim_header(title)
-    full_content = (
-        f"{header}\n{content}\n{tags_str}\n" if tags else f"{header}\n{content}\n"
-    )
+    full_content = f"{header}\n{content}{journal_links}"
+
+    # Add tags at the end
+    if tags_str:
+        full_content += f"\n{tags_str}\n"
+    else:
+        full_content += "\n"
+
     return write_file(note_path, full_content)
 
 
