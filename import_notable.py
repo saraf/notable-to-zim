@@ -561,9 +561,22 @@ def import_md_file(
     body, metadata = parse_yaml_front_matter(content)
     title = metadata.get("title", md_file.stem)
     tags = metadata.get("tags", [])
-    log_debug(
-        f"Processing {md_file.name} with title '{title}'" f" and zzzztags: {tags}"
-    )
+
+    # Extract dates for journal links
+    created_date = None
+    modified_date = None
+
+    # Try to get dates from metadata first
+    if metadata.get("created"):
+        created_date = parse_timestamp(metadata["created"])
+    if metadata.get("modified"):
+        modified_date = parse_timestamp(metadata["modified"])
+
+    # Fallback to file dates if not in metadata
+    if not created_date:
+        created_date = get_file_date(md_file, metadata, "created")
+    if not modified_date:
+        modified_date = get_file_date(md_file, metadata, "modified")
 
     slug = slugify(title, raw_dir, used_slugs)
     note_file = raw_dir / f"{slug}.txt"
@@ -577,7 +590,6 @@ def import_md_file(
     temp_input = temp_dir / f"{slug}.md"
     temp_output = temp_dir / f"{slug}.txt"
     write_file(temp_input, body)
-    # log_message(f"DEBUG: Writing to temp file for Pandoc:\n{body[:500]}...", "DEBUG")
 
     if not run_pandoc(temp_input, temp_output):
         log_error(f"Failed to convert {md_file.name} with Pandoc")
@@ -592,10 +604,14 @@ def import_md_file(
         log_error(f"No content generated for {md_file.name}")
         return ImportStatus.ERROR
 
-    if not create_zim_note(note_file, title, zim_content, tags):
+    # Create Zim note with journal links
+    if not create_zim_note(
+        note_file, title, zim_content, tags, created_date, modified_date
+    ):
         log_error(f"Failed to create Zim note {note_file}")
         return ImportStatus.ERROR
 
+    # Existing journal link logic remains unchanged
     journal_date_key = "created" if not note_file.exists() else "modified"
     journal_ts = get_file_date(md_file, metadata, journal_date_key)
     year = journal_ts.strftime("%Y")
@@ -614,6 +630,77 @@ def import_md_file(
         return ImportStatus.ERROR
 
     return ImportStatus.SUCCESS
+
+
+# def import_md_file(
+#     md_file: Path,
+#     raw_dir: Path,
+#     journal_dir: Path,
+#     log_file: Optional[Path],
+#     temp_dir: Path,
+#     used_slugs: set,
+# ) -> ImportStatus:
+#     """Import a single Markdown file into the Zim notebook."""
+#     content = read_file(md_file)
+#     if not content:
+#         return ImportStatus.ERROR
+
+#     body, metadata = parse_yaml_front_matter(content)
+#     title = metadata.get("title", md_file.stem)
+#     tags = metadata.get("tags", [])
+#     log_debug(
+#         f"Processing {md_file.name} with title '{title}'" f" and zzzztags: {tags}"
+#     )
+
+#     slug = slugify(title, raw_dir, used_slugs)
+#     note_file = raw_dir / f"{slug}.txt"
+
+#     if not needs_update(md_file, note_file, metadata):
+#         log_message(f"Skipping {md_file.name}: already up-to-date", "INFO")
+#         return ImportStatus.SKIPPED
+
+#     log_message(f"Importing {md_file.name} as {note_file.name}", "INFO")
+
+#     temp_input = temp_dir / f"{slug}.md"
+#     temp_output = temp_dir / f"{slug}.txt"
+#     write_file(temp_input, body)
+#     # log_message(f"DEBUG: Writing to temp file for Pandoc:\n{body[:500]}...", "DEBUG")
+
+#     if not run_pandoc(temp_input, temp_output):
+#         log_error(f"Failed to convert {md_file.name} with Pandoc")
+#         temp_input.unlink()
+#         return ImportStatus.ERROR
+
+#     zim_content = read_file(temp_output)
+#     temp_input.unlink()
+#     temp_output.unlink()
+
+#     if not zim_content:
+#         log_error(f"No content generated for {md_file.name}")
+#         return ImportStatus.ERROR
+
+#     if not create_zim_note(note_file, title, zim_content, tags):
+#         log_error(f"Failed to create Zim note {note_file}")
+#         return ImportStatus.ERROR
+
+#     journal_date_key = "created" if not note_file.exists() else "modified"
+#     journal_ts = get_file_date(md_file, metadata, journal_date_key)
+#     year = journal_ts.strftime("%Y")
+#     month = journal_ts.strftime("%m")
+#     day = journal_ts.strftime("%d")
+#     journal_page = journal_dir / year / month / f"{day}.txt"
+
+#     if not append_journal_link(
+#         journal_page,
+#         title,
+#         f"raw_ai_notes:{slug}",
+#         journal_date=journal_ts,
+#         section_title="AI Notes",
+#     ):
+#         log_error(f"Failed to append journal link for {note_file.name}")
+#         return ImportStatus.ERROR
+
+#     return ImportStatus.SUCCESS
 
 
 def main():
