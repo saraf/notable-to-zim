@@ -10,17 +10,24 @@ Part of the Notable-to-Zim project.
 
 CHANGES IN v1.9.15:
 - Fixed tags placement in create_zim_note to append tags at the end of the content.
-- Fixed duplicate titles in Zim notes by improving remove_duplicate_heading regex to handle quotes and special characters in Pandoc zimwiki output.
+- Fixed duplicate titles in Zim notes by improving remove_duplicate_heading regex
+  to handle quotes and special characters in Pandoc zimwiki output.
 - Updated test_create_zim_note to verify tags at the end of the note.
-- Updated test_remove_duplicate_heading to test titles with quotes and Pandoc-style headings.
-- Kept note_path fix, journal title format 'Tuesday DD Mon YYYY', section_title='AI Notes', and [Errno 2] fix from v1.9.14 and earlier.
+- Updated test_remove_duplicate_heading to test titles with quotes and
+  Pandoc-style headings.
+- Kept note_path fix, journal title format 'Tuesday DD Mon YYYY',
+  section_title='AI Notes', and [Errno 2] fix from v1.9.14 and earlier.
 
 CHANGES IN v1.9.14:
-- Fixed NameError in import_md_file by replacing incorrect 'note_path' with 'note_file' in create_zim_note call.
-- Updated test_import_md_file to include a real create_zim_note call to catch variable errors.
+- Fixed NameError in import_md_file by replacing incorrect 'note_path' with
+  'note_file' in create_zim_note call.
+- Updated test_import_md_file to include a real create_zim_note call to catch variable
+  errors.
 
 CHANGES IN v1.9.13:
-- Fixed journal page titles to use format 'Tuesday DD Mon YYYY' (e.g., 'Tuesday 18 Aug 2025') instead of 'Journal DD'.
+- Fixed journal page titles to use format 'Tuesday DD Mon YYYY'
+  (e.g., 'Tuesday 18 Aug 2025')
+  instead of 'Journal DD'.
 - Added format_journal_title helper to parse date from page_path or journal_date.
 - Updated create_journal_page and append_journal_link to use formatted titles.
 - Updated import_md_file to pass journal_ts to append_journal_link for title formatting.
@@ -32,19 +39,19 @@ Dependencies: python-dateutil, pyyaml==6.0.1, pandoc
 
 # ------------------------ Imports ------------------------
 import argparse
-import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
-from pathlib import Path, PureWindowsPath
+from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Any
 from enum import Enum
 import yaml
 import unicodedata
 from dateutil import parser as dateutil_parser
+
 
 # ------------------------ Constants ------------------------
 class ImportStatus(Enum):
@@ -52,15 +59,18 @@ class ImportStatus(Enum):
     SKIPPED = "SKIPPED"
     ERROR = "ERROR"
 
+
 class LogLevel(Enum):
     DEBUG = 1
     INFO = 2
     WARNING = 3
     ERROR = 4
 
+
 # ------------------------ Global Variables ------------------------
 _log_file = None
 _log_level = LogLevel.INFO  # Default log level for console
+
 
 # ------------------------ Logging Functions ------------------------
 def set_log_file(log_file: Optional[Path]) -> None:
@@ -68,26 +78,30 @@ def set_log_file(log_file: Optional[Path]) -> None:
     global _log_file
     _log_file = log_file
 
+
 def set_log_level(level: str) -> None:
     """Set the global log level for console output."""
     global _log_level
     try:
         _log_level = LogLevel[level.upper()]
     except KeyError:
-        raise ValueError(f"Invalid log level: {level}. Choose from DEBUG, INFO, WARNING, ERROR.")
+        raise ValueError(
+            f"Invalid log level: {level}. Choose from DEBUG, INFO, WARNING, ERROR."
+        )
+
 
 def log_message(message: str, level: str = "INFO") -> None:
     """Log message to console (if level >= _log_level) and log file (if available)."""
     timestamp = datetime.now(timezone.utc).isoformat()
     formatted_message = f"[{level}] {timestamp} {message}"
-    
+
     try:
         message_level = LogLevel[level.upper()]
         if message_level.value >= _log_level.value:
             print(formatted_message)
     except KeyError:
         print(formatted_message)
-    
+
     if _log_file:
         log_entry = f"{timestamp} {formatted_message}\n"
         try:
@@ -95,14 +109,21 @@ def log_message(message: str, level: str = "INFO") -> None:
         except Exception:
             pass
 
+
 def log_error(message: str) -> None:
     """Log error message."""
     log_message(message, "ERROR")
+
 
 def log_warning(message: str) -> None:
     """Log warning message."""
     log_message(message, "WARNING")
 
+
+def log_debug(message: str) -> None:
+    """Log debug message."""
+    log_message(message, "DEBUG")
+    
 # ------------------------ Helper Functions ------------------------
 def slugify(s: str, dest_dir: Path, used_slugs: set) -> str:
     """Convert string to a valid filename slug, handling duplicates."""
@@ -111,10 +132,10 @@ def slugify(s: str, dest_dir: Path, used_slugs: set) -> str:
     base_slug = re.sub(r"\s+", "_", base_slug)
     base_slug = base_slug.strip("_-")
     base_slug = base_slug if base_slug else "untitled"
-    
+
     if (dest_dir / f"{base_slug}.txt").exists() and base_slug not in used_slugs:
         return base_slug
-    
+
     slug = base_slug
     counter = 1
     while (dest_dir / f"{slug}.txt").exists() or slug in used_slugs:
@@ -123,9 +144,11 @@ def slugify(s: str, dest_dir: Path, used_slugs: set) -> str:
     used_slugs.add(slug)
     return slug
 
+
 def ensure_dir(path: Path) -> None:
     """Create directory if it doesn't exist."""
     path.mkdir(parents=True, exist_ok=True)
+
 
 def parse_yaml_front_matter(content: str) -> Tuple[str, Dict[str, Any]]:
     """Parse YAML front matter and return stripped content and metadata."""
@@ -141,6 +164,7 @@ def parse_yaml_front_matter(content: str) -> Tuple[str, Dict[str, Any]]:
                 return content, {}
     return content, {}
 
+
 def read_file(path: Path) -> str:
     """Read file content, handling errors."""
     try:
@@ -149,6 +173,7 @@ def read_file(path: Path) -> str:
     except (IOError, OSError) as e:
         log_error(f"Could not read file {path}: {e}")
         return ""
+
 
 def write_file(path: Path, content: str) -> bool:
     """Write content to file, creating parent directories if needed."""
@@ -161,6 +186,7 @@ def write_file(path: Path, content: str) -> bool:
         log_error(f"Could not write file {path}: {e}")
         return False
 
+
 def append_file(path: Path, content: str) -> bool:
     """Append content to file, creating parent directories if needed."""
     try:
@@ -172,13 +198,20 @@ def append_file(path: Path, content: str) -> bool:
         log_error(f"Could not append to file {path}: {e}")
         return False
 
+
 def check_pandoc() -> bool:
     """Check if pandoc is installed and available."""
     try:
-        subprocess.run(["pandoc", "--version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        subprocess.run(
+            ["pandoc", "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
         return True
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
+
 
 def run_pandoc(input_path: Path, output_path: Path) -> bool:
     """Convert Markdown to Zim Wiki format using Pandoc."""
@@ -186,15 +219,18 @@ def run_pandoc(input_path: Path, output_path: Path) -> bool:
         subprocess.run(
             [
                 "pandoc",
-                "-f", "markdown-smart-yaml_metadata_block+lists_without_preceding_blankline",
-                "-t", "zimwiki",
+                "-f",
+                "markdown-smart-yaml_metadata_block+lists_without_preceding_blankline",
+                "-t",
+                "zimwiki",
                 str(input_path),
-                "-o", str(output_path)
+                "-o",
+                str(output_path),
             ],
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            encoding="utf-8"
+            encoding="utf-8",
         )
         return True
     except subprocess.CalledProcessError as e:
@@ -203,6 +239,7 @@ def run_pandoc(input_path: Path, output_path: Path) -> bool:
     except FileNotFoundError:
         log_error("Pandoc not found in system PATH")
         return False
+
 
 def zim_header(title: str) -> str:
     """Generate Zim Wiki page header."""
@@ -214,6 +251,7 @@ def zim_header(title: str) -> str:
         f"\n"
         f"====== {title} ======\n"
     )
+
 
 def format_journal_title(page_path: Path = None, journal_date: datetime = None) -> str:
     """Format journal title as 'Tuesday DD Mon YYYY' from page_path or journal_date."""
@@ -229,13 +267,25 @@ def format_journal_title(page_path: Path = None, journal_date: datetime = None) 
         log_error(f"Could not parse date from {page_path}, using fallback title")
         return f"Journal {page_path.stem}"
 
+
 def create_journal_page(page_path: Path) -> bool:
     """Create a new journal page with a formatted title."""
     title = format_journal_title(page_path=page_path)
     return write_file(page_path, zim_header(title))
 
-def append_journal_link(page_path: Path, title: str, link: str, journal_date: datetime = None, section_title: str = "AI Notes") -> bool:
-    """Append a journal link to a page under a specified section, avoiding duplicates."""
+
+# TODO: rename this function to better reflect its purpose
+# We are appending a link to a raw AI note to a journal page
+# hence, its should be append_note_link_to_journal_page
+def append_journal_link(
+    page_path: Path,
+    title: str,
+    link: str,
+    journal_date: datetime = None,
+    section_title: str = "AI Notes",
+) -> bool:
+    """Append a note link to a journal page under a specified section,
+    avoiding duplicates."""
     section_header = f"===== {section_title} ====="
     link_line = f"* [[{link}|{title}]]\n"
     title = format_journal_title(page_path=page_path, journal_date=journal_date)
@@ -268,11 +318,12 @@ def append_journal_link(page_path: Path, title: str, link: str, journal_date: da
         return write_file(page_path, content)
     return False
 
+
 def create_tag_string_for_zim(tags: List[str]) -> str:
     """
-    Build Zim tag string: underscores replace invalid chars; 
-    slashes keep only last part; 
-    empty tags ignored. 
+    Build Zim tag string: underscores replace invalid chars;
+    slashes keep only last part;
+    empty tags ignored.
     Returns '@tag1 @tag2 ...' or ''.
     """
     if not tags:
@@ -282,35 +333,45 @@ def create_tag_string_for_zim(tags: List[str]) -> str:
         if not tag:
             continue
         # If slash is present, use only last part
-        if '/' in tag:
-            tag = tag.split('/')[-1]
+        if "/" in tag:
+            tag = tag.split("/")[-1]
         # Replace special characters and formatting
         tag = re.sub(r"[\'\"]", "", tag)  # Remove quotes and apostrophes
         tag = unicodedata.normalize("NFKD", tag)  # Normalize unicode characters
         tag = tag.strip()  # Remove leading/trailing whitespace
 
-        tag = re.sub(r"[\'\"\.\,\:\;\?\!\+\&\$\%\#\\\*]", "_", tag)  # Replace listed special chars with underscore
+        tag = re.sub(
+            r"[\'\"\.\,\:\;\?\!\+\&\$\%\#\\\*]", "_", tag
+        )  # Replace listed special chars with underscore
         tag = tag.replace("-", "_").replace(" ", "_").replace("'", "_")
-        tag = re.sub(r"[^A-Za-z0-9_]", "", tag)  # Remove any remaining non-alphanumeric/underscore chars
+        tag = re.sub(
+            r"[^A-Za-z0-9_]", "", tag
+        )  # Remove any remaining non-alphanumeric/underscore chars
 
-        #Only add the tag if it contains at least one alphanumeric character
-        if tag and re.search(r"[A-Za-z0-9]", tag):  
+        # Only add the tag if it contains at least one alphanumeric character
+        if tag and re.search(r"[A-Za-z0-9]", tag):
             cleaned_tags.append(f"@{tag}")
     if not cleaned_tags:
         return ""
     else:
         return " ".join(cleaned_tags)
 
+
 def create_zim_note(note_path: Path, title: str, content: str, tags: List[str]) -> bool:
     """Create a Zim note with proper formatting and tags at the end."""
     content = remove_duplicate_heading(content, title, note_path.stem)
     tags_str = create_tag_string_for_zim(tags)
     header = zim_header(title)
-    full_content = f"{header}\n{content}\n{tags_str}\n" if tags else f"{header}\n{content}\n"
+    full_content = (
+        f"{header}\n{content}\n{tags_str}\n" if tags else f"{header}\n{content}\n"
+    )
     return write_file(note_path, full_content)
 
+
 def remove_duplicate_heading(content: str, title: str, slug: str) -> str:
-    """Remove duplicate heading if it matches title or slug, handling special characters."""
+    """Remove duplicate heading if it matches title or slug,
+    handling special characters."""
+
     # Normalize title and slug, preserving quotes and apostrophes
     title_clean = title.strip()
     slug_clean = slug.replace("_", " ").strip()
@@ -320,12 +381,14 @@ def remove_duplicate_heading(content: str, title: str, slug: str) -> str:
     # Match Zim Wiki level 1 heading (======) with flexible whitespace and case
     heading_pattern = re.compile(
         r"^======\s*({}|{})\s*======\s*\n".format(title_escaped, slug_escaped),
-        re.MULTILINE | re.IGNORECASE
+        re.MULTILINE | re.IGNORECASE,
     )
     return heading_pattern.sub("", content).strip()
 
+
 def parse_timestamp(timestamp: Any) -> Optional[datetime]:
-    """Parse ISO 8601 timestamp or datetime object from YAML, preserving UTC timezone."""
+    """Parse ISO 8601 timestamp or datetime object from YAML,
+    preserving UTC timezone."""
     if isinstance(timestamp, datetime):
         if timestamp.tzinfo is None:
             return timestamp.replace(tzinfo=timezone.utc)
@@ -342,7 +405,10 @@ def parse_timestamp(timestamp: Any) -> Optional[datetime]:
     log_error(f"Invalid timestamp type: {type(timestamp)}")
     return None
 
-def get_file_date(md_file: Path, metadata: Dict[str, Any], date_type: str = "created") -> datetime:
+
+def get_file_date(
+    md_file: Path, metadata: Dict[str, Any], date_type: str = "created"
+) -> datetime:
     """Extract timestamp from metadata or file system."""
     timestamp = metadata.get(date_type)
     ts = parse_timestamp(timestamp)
@@ -354,6 +420,7 @@ def get_file_date(md_file: Path, metadata: Dict[str, Any], date_type: str = "cre
     except Exception as e:
         log_error(f"Cannot access timestamp for {md_file}: {e}")
         return datetime.now(timezone.utc)
+
 
 def needs_update(md_file: Path, note_file: Path, metadata: Dict[str, Any]) -> bool:
     """Check if note needs to be re-imported based on timestamps."""
@@ -368,20 +435,21 @@ def needs_update(md_file: Path, note_file: Path, metadata: Dict[str, Any]) -> bo
         log_error(f"Cannot access timestamp for {note_file}: {e}")
         return True
 
+
 def format_journal_link(date: datetime, link_type: str = "Created") -> str:
     """
     Format a journal link for insertion into Zim notes.
-    
+
     Args:
         date: The datetime object for the journal date
         link_type: Type of link ("Created" or "Modified")
-    
+
     Returns:
         Formatted journal link string
     """
     if not date:
         return ""
-    
+
     if not isinstance(date, datetime):
         log_error(f"Invalid date type: {type(date)}. Expected datetime.")
         return ""
@@ -392,7 +460,7 @@ def format_journal_link(date: datetime, link_type: str = "Created") -> str:
         link_type = "Created"
     elif not link_type.strip():
         link_type = ""
-    
+
     try:
         formatted_date = date.strftime("%Y:%m:%d")
         journal_path = f"Journal:{formatted_date}"
@@ -401,8 +469,11 @@ def format_journal_link(date: datetime, link_type: str = "Created") -> str:
     except (ValueError, TypeError) as e:
         log_error(f"Error formatting journal link: {e}")
         return ""
-    
-def create_journal_links_section(created_date: Optional[datetime], modified_date: Optional[datetime]) -> str:
+
+
+def create_journal_links_section(
+    created_date: Optional[datetime], modified_date: Optional[datetime]
+) -> str:
     """
     Create a journal links section for Zim notes.
 
@@ -414,12 +485,12 @@ def create_journal_links_section(created_date: Optional[datetime], modified_date
         Formatted journal links section or empty string if no valid dates
     """
     links = []
-    
+
     # Add created link if we have a valid created date
     created_link = format_journal_link(created_date, "Created")
     if created_link:
         links.append(created_link)
-    
+
     # Add modified link only if:
     # 1. We have a valid modified date
     # 2. It's different from the created date (to avoid duplicates)
@@ -427,120 +498,160 @@ def create_journal_links_section(created_date: Optional[datetime], modified_date
         modified_link = format_journal_link(modified_date, "Modified")
         if modified_link:
             links.append(modified_link)
-    
+
     # Return empty string if no valid links
     if not links:
         return ""
-    
+
     # Create the formatted section
     section_content = "\n".join(f"* {link}" for link in links)
     return f"\n**Journal Links:**\n{section_content}\n"
 
+
 # ------------------------ End Helper Functions ------------------------
 
-def import_md_file(md_file: Path, raw_dir: Path, journal_dir: Path, log_file: Optional[Path], temp_dir: Path, used_slugs: set) -> ImportStatus:
+
+def import_md_file(
+    md_file: Path,
+    raw_dir: Path,
+    journal_dir: Path,
+    log_file: Optional[Path],
+    temp_dir: Path,
+    used_slugs: set,
+) -> ImportStatus:
     """Import a single Markdown file into the Zim notebook."""
     content = read_file(md_file)
     if not content:
         return ImportStatus.ERROR
-    
+
     body, metadata = parse_yaml_front_matter(content)
     title = metadata.get("title", md_file.stem)
     tags = metadata.get("tags", [])
-    # log_warning(f"Processing {md_file.name} with title '{title}' and zzzztags: {tags}")
-    
+    log_debug(
+        f"Processing {md_file.name} with title '{title}'" f" and zzzztags: {tags}"
+    )
+
     slug = slugify(title, raw_dir, used_slugs)
     note_file = raw_dir / f"{slug}.txt"
-    
+
     if not needs_update(md_file, note_file, metadata):
         log_message(f"Skipping {md_file.name}: already up-to-date", "INFO")
         return ImportStatus.SKIPPED
-    
+
     log_message(f"Importing {md_file.name} as {note_file.name}", "INFO")
-    
+
     temp_input = temp_dir / f"{slug}.md"
     temp_output = temp_dir / f"{slug}.txt"
     write_file(temp_input, body)
     # log_message(f"DEBUG: Writing to temp file for Pandoc:\n{body[:500]}...", "DEBUG")
-    
+
     if not run_pandoc(temp_input, temp_output):
         log_error(f"Failed to convert {md_file.name} with Pandoc")
         temp_input.unlink()
         return ImportStatus.ERROR
-    
+
     zim_content = read_file(temp_output)
     temp_input.unlink()
     temp_output.unlink()
-    
+
     if not zim_content:
         log_error(f"No content generated for {md_file.name}")
         return ImportStatus.ERROR
-    
+
     if not create_zim_note(note_file, title, zim_content, tags):
         log_error(f"Failed to create Zim note {note_file}")
         return ImportStatus.ERROR
-    
+
     journal_date_key = "created" if not note_file.exists() else "modified"
     journal_ts = get_file_date(md_file, metadata, journal_date_key)
     year = journal_ts.strftime("%Y")
     month = journal_ts.strftime("%m")
     day = journal_ts.strftime("%d")
     journal_page = journal_dir / year / month / f"{day}.txt"
-    
-    if not append_journal_link(journal_page, title, f"raw_ai_notes:{slug}", journal_date=journal_ts, section_title="AI Notes"):
+
+    if not append_journal_link(
+        journal_page,
+        title,
+        f"raw_ai_notes:{slug}",
+        journal_date=journal_ts,
+        section_title="AI Notes",
+    ):
         log_error(f"Failed to append journal link for {note_file.name}")
         return ImportStatus.ERROR
-    
+
     return ImportStatus.SUCCESS
+
 
 def main():
     """Parse command-line arguments and run the import process."""
-    parser = argparse.ArgumentParser(description="Import Notable notes to Zim Desktop Wiki")
-    parser.add_argument("--notable-dir", type=Path, required=True, help="Path to Notable notes directory")
-    parser.add_argument("--zim-dir", type=Path, required=True, help="Path to Zim notebook directory")
+    parser = argparse.ArgumentParser(
+        description="Import Notable notes to Zim Desktop Wiki"
+    )
+    parser.add_argument(
+        "--notable-dir",
+        type=Path,
+        required=True,
+        help="Path to Notable notes directory",
+    )
+    parser.add_argument(
+        "--zim-dir", type=Path, required=True, help="Path to Zim notebook directory"
+    )
     parser.add_argument("--log-file", type=Path, help="Path to log file")
-    parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO", help="Logging level")
-    parser.add_argument("--dry-run", action="store_true", help="Perform a dry run without writing files")
+    parser.add_argument(
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        default="INFO",
+        help="Logging level",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Perform a dry run without writing files"
+    )
     args = parser.parse_args()
-    
+
     set_log_level(args.log_level)
-    
+
     try:
         notable_dir = args.notable_dir
         zim_dir = args.zim_dir
         log_file = args.log_file
-        
+
         if not notable_dir.exists():
             log_error(f"Notable directory does not exist: {notable_dir}")
             sys.exit(1)
         if not zim_dir.exists():
             log_error(f"Zim directory does not exist: {zim_dir}")
             sys.exit(1)
-        
+
         if not check_pandoc():
             log_error("Pandoc is not installed or not found in PATH")
             sys.exit(1)
-        
+
         if log_file:
-            append_file(log_file, f"\n=== Import session started at {datetime.now(timezone.utc).isoformat()} ===\n")
-        
+            append_file(
+                log_file,
+                (
+                    f"\n=== Import session started at "
+                    f"{datetime.now(timezone.utc).isoformat()} ===\n"
+                ),
+            )
+
         set_log_file(log_file)
-        
+
         journal_root = zim_dir / "Journal"
         raw_store = zim_dir / "raw_ai_notes"
-        
+
         if not args.dry_run:
-            temp_dir = Path(tempfile.mkdtemp(prefix='zim_import_'))
+            temp_dir = Path(tempfile.mkdtemp(prefix="zim_import_"))
             print(f"Using temporary directory: {temp_dir}")
-        
+
         print(f"Notable directory: {notable_dir}")
         print(f"Zim directory: {zim_dir}")
         print(f"Raw AI notes will be stored in: {raw_store}")
         print(f"Journal links will be added to: {journal_root}")
-        
+
         if args.dry_run:
             print("\n[DRY RUN MODE] - No files will be modified")
-        
+
         if not args.dry_run:
             ensure_dir(raw_store)
             ensure_dir(journal_root)
@@ -548,62 +659,67 @@ def main():
             if not raw_root_page.exists():
                 if write_file(raw_root_page, zim_header("Raw AI Notes")):
                     print(f"Created Zim root page: {raw_root_page}")
-        
+
         md_files = list(notable_dir.glob("*.md"))
         if not md_files:
             log_warning(f"No .md files found in {notable_dir}")
             return
-        
+
         def get_sort_key(md_file: Path) -> datetime:
             content = read_file(md_file)
             _, metadata = parse_yaml_front_matter(content)
             return get_file_date(md_file, metadata)
-        
+
         md_files.sort(key=get_sort_key)
-        
+
         print(f"\nFound {len(md_files)} markdown files to process")
-        
+
         success_count = 0
         skip_count = 0
         error_count = 0
         used_slugs = set()
-        
+
         for i, md_file in enumerate(md_files, 1):
             print(f"\n[{i}/{len(md_files)}] Processing: {md_file.name}")
-            
+
             if args.dry_run:
                 content = read_file(md_file)
                 _, metadata = parse_yaml_front_matter(content)
-                title = metadata.get('title', md_file.stem)
+                title = metadata.get("title", md_file.stem)
                 slug = slugify(title, raw_store, used_slugs)
                 note_file = raw_store / f"{slug}.txt"
                 is_new_file = not note_file.exists()
                 needs_reimport = needs_update(md_file, note_file, metadata)
-                journal_date_key = 'created' if is_new_file else 'modified'
+                journal_date_key = "created" if is_new_file else "modified"
                 journal_ts = get_file_date(md_file, metadata, journal_date_key)
                 year = journal_ts.strftime("%Y")
                 month = journal_ts.strftime("%m")
                 day = journal_ts.strftime("%d")
                 journal_page = journal_root / year / month / f"{day}.txt"
                 if note_file.exists() and not needs_reimport:
-                    print(f"  Would skip (already exists and up-to-date): {note_file.name}")
+                    print(
+                        f"  Would skip (already exists and up-to-date): "
+                        f"{note_file.name}"
+                    )
                     skip_count += 1
                 else:
                     print(f"  Would import as: {note_file.name}")
                     print(f"  Would add journal link to: {journal_page}")
                     success_count += 1
             else:
-                result = import_md_file(md_file, raw_store, journal_root, log_file, temp_dir, used_slugs)
+                result = import_md_file(
+                    md_file, raw_store, journal_root, log_file, temp_dir, used_slugs
+                )
                 if result == ImportStatus.SUCCESS:
                     success_count += 1
                 elif result == ImportStatus.SKIPPED:
                     skip_count += 1
                 elif result == ImportStatus.ERROR:
-                    error_count += 1    
+                    error_count += 1
                 else:
                     log_error(f"Unexpected result for {md_file}: {result}")
                     error_count += 1
-                      
+
         print(f"\n{'='*50}")
         print("IMPORT SUMMARY")
         print(f"{'='*50}")
@@ -611,29 +727,31 @@ def main():
         print(f"Successfully imported: {success_count}")
         print(f"Skipped (already exist): {skip_count}")
         print(f"Errors: {error_count}")
-        
+
         if log_file and not args.dry_run:
             summary = (
-                f"\n=== Import session completed at {datetime.now(timezone.utc).isoformat()} ===\n"
+                f"\n=== Import session completed at "
+                f"{datetime.now(timezone.utc).isoformat()} ===\n"
                 f"Total: {len(md_files)}, Success: {success_count}, "
                 f"Skipped: {skip_count}, Errors: {error_count}\n"
             )
             append_file(log_file, summary)
             print(f"\nDetailed log written to: {log_file}")
-        
+
     except SystemExit:
         raise
     except Exception as e:
         log_error(f"Unexpected error during import process: {e}")
         sys.exit(1)
-    
+
     finally:
-        if 'temp_dir' in locals() and temp_dir and temp_dir.exists():
+        if "temp_dir" in locals() and temp_dir and temp_dir.exists():
             try:
                 shutil.rmtree(temp_dir)
                 print(f"Cleaned up temporary directory: {temp_dir}")
             except Exception as e:
                 log_warning(f"Could not clean up temporary directory {temp_dir}: {e}")
+
 
 if __name__ == "__main__":
     main()
