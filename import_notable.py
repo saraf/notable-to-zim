@@ -394,7 +394,8 @@ def create_zim_note(
     modified_date: Optional[datetime] = None,
 ) -> bool:
     """
-    Create a Zim note with proper formatting, tags at the end, and optional journal links.
+    Create a Zim note with proper formatting, tags at the end, and
+    optional journal links.
 
     Args:
         note_path: Path where the note will be created
@@ -584,16 +585,18 @@ def import_md_file_enhanced(
     This is a simplified version focusing on the timezone handling logic.
     """
     # Mock the file processing steps that aren't relevant to timezone testing
-    content = "mock content"
-    metadata = {
-        "title": "Test Note",
-        "created": "2025-08-18T23:30:00Z",  # UTC timestamp
-        "modified": "2025-08-20T02:15:00Z",  # UTC timestamp
-    }
+    # content = "mock content"
 
-    # Parse timestamps (this would normally come from your existing parse_timestamp function)
+    # metadata = {
+    #     "title": "Test Note",
+    #     "created": "2025-08-18T23:30:00Z",  # UTC timestamp
+    #     "modified": "2025-08-20T02:15:00Z",  # UTC timestamp
+    # }
+
+    # Parse timestamps (this would normally come from your existing
+    # parse_timestamp function)
     created_utc = datetime(2025, 8, 18, 23, 30, 0, tzinfo=timezone.utc)
-    modified_utc = datetime(2025, 8, 20, 2, 15, 0, tzinfo=timezone.utc)
+    # modified_utc = datetime(2025, 8, 20, 2, 15, 0, tzinfo=timezone.utc)
 
     # The key change: use local time for journal folder structure
     journal_ts = created_utc  # For new files, use created date
