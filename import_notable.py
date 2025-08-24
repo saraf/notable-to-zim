@@ -691,7 +691,7 @@ def import_md_file(
         journal_page,
         title,
         f"raw_ai_notes:{slug}",
-        journal_date=journal_ts,
+        journal_date=local_journal_ts,
         section_title="AI Notes",
     ):
         log_error(f"Failed to append journal link for {note_file.name}")
