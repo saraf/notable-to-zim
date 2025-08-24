@@ -568,57 +568,31 @@ def create_journal_links_section(
     return f"\n**Journal Links:**\n{section_content}\n"
 
 
+def calculate_journal_path(timestamp: datetime, journal_dir: Path) -> Path:
+    """
+    Calculate journal page path using local timezone conversion.
+
+    Args:
+        timestamp: UTC datetime for the entry
+        journal_dir: Base journal directory path
+
+    Returns:
+        Path to the journal page (e.g., journal/2025/08/18.txt)
+    """
+    local_ts = utc_to_local(timestamp)
+    year = local_ts.strftime("%Y")
+    month = local_ts.strftime("%m")
+    day = local_ts.strftime("%d")
+    return journal_dir / year / month / f"{day}.txt"
+
+
 # ------------------------ End Helper Functions ------------------------
-
-
-def import_md_file_enhanced(
-    md_file: Path,
-    raw_dir: Path,
-    journal_dir: Path,
-    log_file: Path = None,
-    temp_dir: Path = None,
-    used_slugs: set = None,
-) -> ImportStatus:
-    """
-    Enhanced import_md_file that uses local time for journal folder structure.
-
-    This is a simplified version focusing on the timezone handling logic.
-    """
-    # Mock the file processing steps that aren't relevant to timezone testing
-    # content = "mock content"
-
-    # metadata = {
-    #     "title": "Test Note",
-    #     "created": "2025-08-18T23:30:00Z",  # UTC timestamp
-    #     "modified": "2025-08-20T02:15:00Z",  # UTC timestamp
-    # }
-
-    # Parse timestamps (this would normally come from your existing
-    # parse_timestamp function)
-    created_utc = datetime(2025, 8, 18, 23, 30, 0, tzinfo=timezone.utc)
-    # modified_utc = datetime(2025, 8, 20, 2, 15, 0, tzinfo=timezone.utc)
-
-    # The key change: use local time for journal folder structure
-    journal_ts = created_utc  # For new files, use created date
-
-    # Convert to local time for journal path creation
-    local_journal_ts = utc_to_local(journal_ts)
-
-    # Create journal path using LOCAL date components
-    year = local_journal_ts.strftime("%Y")
-    month = local_journal_ts.strftime("%m")
-    day = local_journal_ts.strftime("%d")
-    journal_page = journal_dir / year / month / f"{day}.txt"
-
-    # Return the journal page for testing purposes
-    return journal_page
 
 
 def import_md_file(
     md_file: Path,
     raw_dir: Path,
     journal_dir: Path,
-    log_file: Optional[Path],
     temp_dir: Path,
     used_slugs: set,
 ) -> ImportStatus:
@@ -683,13 +657,9 @@ def import_md_file(
     # Existing journal link logic remains unchanged
     journal_date_key = "created" if not note_file.exists() else "modified"
     journal_ts = get_file_date(md_file, metadata, journal_date_key)
+    journal_page = calculate_journal_path(journal_ts, journal_dir)
 
     local_journal_ts = utc_to_local(journal_ts)
-    year = local_journal_ts.strftime("%Y")
-    month = local_journal_ts.strftime("%m")
-    day = local_journal_ts.strftime("%d")
-    journal_page = journal_dir / year / month / f"{day}.txt"
-
     if not append_journal_link(
         journal_page,
         title,
@@ -829,7 +799,7 @@ def main():
                     success_count += 1
             else:
                 result = import_md_file(
-                    md_file, raw_store, journal_root, log_file, temp_dir, used_slugs
+                    md_file, raw_store, journal_root, temp_dir, used_slugs
                 )
                 if result == ImportStatus.SUCCESS:
                     success_count += 1

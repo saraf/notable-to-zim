@@ -369,20 +369,20 @@ def test_import_md_file(sample_md, zim_dir, temp_dir):
     ):
 
         result = import_md_file(
-            sample_md, raw_store, journal_root, None, temp_dir, used_slugs
+            sample_md, raw_store, journal_root, temp_dir, used_slugs
         )
         assert result == ImportStatus.SUCCESS
 
     # Test skip case
     with patch("import_notable.needs_update", return_value=False):
         result = import_md_file(
-            sample_md, raw_store, journal_root, None, temp_dir, used_slugs
+            sample_md, raw_store, journal_root, temp_dir, used_slugs
         )
         assert result == ImportStatus.SKIPPED
 
     # Test error case - empty file content
     with patch("import_notable.read_file", return_value=""):
         result = import_md_file(
-            sample_md, raw_store, journal_root, None, temp_dir, used_slugs
+            sample_md, raw_store, journal_root, temp_dir, used_slugs
         )
         assert result == ImportStatus.ERROR

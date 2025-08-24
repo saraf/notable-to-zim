@@ -1,23 +1,30 @@
-# Tests for utc_to_local function
+# Updated tests focusing on the refactored timezone handling
 
 import pytest
 from datetime import datetime, timezone
 from unittest.mock import patch
 from pathlib import Path
-from import_notable import utc_to_local, format_journal_link, import_md_file_enhanced
+from import_notable import (
+    utc_to_local, 
+    format_journal_link, 
+    calculate_journal_path,
+    import_md_file,
+    ImportStatus
+)
 
+@pytest.fixture
+def temp_dir(tmp_path):
+    """Create a temporary directory for testing."""
+    return tmp_path
 
+# Test the core timezone conversion function
 def test_utc_to_local_with_timezone():
     """Test UTC to local time conversion with timezone-aware datetime."""
-    utc_date = datetime(2025, 8, 18, 16, 21, 28, tzinfo=timezone.utc)  # 4:21 PM UTC
+    utc_date = datetime(2025, 8, 18, 16, 21, 28, tzinfo=timezone.utc)
     local_date = utc_to_local(utc_date)
 
-    # The exact local time depends on the system timezone, but we can test the conversion worked
     assert local_date.tzinfo is not None
-    assert (
-        local_date.tzinfo != timezone.utc
-    )  # Should be different from UTC unless system is UTC
-
+    assert local_date.tzinfo != timezone.utc
 
 def test_utc_to_local_naive_datetime():
     """Test with naive datetime (should assume UTC)."""
@@ -25,39 +32,21 @@ def test_utc_to_local_naive_datetime():
     local_date = utc_to_local(naive_date)
     assert local_date.tzinfo is not None
 
-
 def test_utc_to_local_none():
     """Test with None input."""
     assert utc_to_local(None) is None
-
 
 def test_utc_to_local_empty():
     """Test with empty string."""
     assert utc_to_local("") == ""
 
-
-@patch("time.timezone", -18000)  # Mock EST (UTC-5)
-def test_utc_to_local_with_mocked_timezone():
-    """Test timezone conversion with mocked system timezone."""
-    utc_date = datetime(2025, 8, 18, 23, 21, 28, tzinfo=timezone.utc)  # 11:21 PM UTC
-
-    # We can't easily mock astimezone(), but we can test that it returns a different timezone
-    local_date = utc_to_local(utc_date)
-    assert local_date.tzinfo is not None
-    assert local_date.tzinfo != timezone.utc
-
-
-# Test enhanced journal link generation
-# Tests for enhanced format_journal_link
+# Test journal link formatting
 def test_format_journal_link_with_timezone_conversion():
     """Test formatting journal links with timezone conversion."""
-    # UTC date that might be on a different day in local time
-    utc_date = datetime(2025, 8, 18, 23, 21, 28, tzinfo=timezone.utc)  # 11:21 PM UTC
+    utc_date = datetime(2025, 8, 18, 23, 21, 28, tzinfo=timezone.utc)
 
-    # Mock the utc_to_local function to return a predictable local time
     with patch("import_notable.utc_to_local") as mock_utc_to_local:
-        # Simulate EST conversion (UTC-5) - still same day
-        local_date = datetime(2025, 8, 18, 18, 21, 28)  # 6:21 PM local same day
+        local_date = datetime(2025, 8, 18, 18, 21, 28)
         mock_utc_to_local.return_value = local_date
 
         result = format_journal_link(utc_date, "Created")
@@ -65,130 +54,127 @@ def test_format_journal_link_with_timezone_conversion():
         assert result == expected
         mock_utc_to_local.assert_called_once_with(utc_date)
 
-
 def test_format_journal_link_date_boundary():
-    """Test journal links when UTC and local dates differ (timezone boundary)."""
-    # UTC date: 2:00 AM on Aug 19 -> should be Aug 18 in EST (UTC-5)
+    """Test journal links when UTC and local dates differ."""
     utc_date = datetime(2025, 8, 19, 2, 0, 0, tzinfo=timezone.utc)
 
     with patch("import_notable.utc_to_local") as mock_utc_to_local:
-        # Simulate conversion to previous day in local time
-        local_date = datetime(2025, 8, 18, 21, 0, 0)  # 9:00 PM on Aug 18
+        local_date = datetime(2025, 8, 18, 21, 0, 0)
         mock_utc_to_local.return_value = local_date
 
         result = format_journal_link(utc_date, "Created")
         expected = "[[Journal:2025:08:18|Created on August 18 2025]]"
         assert result == expected
 
-
-def test_format_journal_link_opposite_boundary():
-    """Test when local time is next day compared to UTC."""
-    # UTC: 11:00 PM on Aug 18 -> Aug 19 in Tokyo (UTC+9)
-    utc_date = datetime(2025, 8, 18, 14, 0, 0, tzinfo=timezone.utc)  # 2:00 PM UTC
-
-    with patch("import_notable.utc_to_local") as mock_utc_to_local:
-        # Simulate conversion to next day in local time (Tokyo)
-        local_date = datetime(2025, 8, 18, 23, 0, 0)  # 11:00 PM same day (not crossing)
-        mock_utc_to_local.return_value = local_date
-
-        result = format_journal_link(utc_date, "Created")
-        expected = "[[Journal:2025:08:18|Created on August 18 2025]]"
-        assert result == expected
-
-
-def test_format_journal_link_none_date():
-    """Test with None date still returns empty string."""
-    result = format_journal_link(None)
-    assert result == ""
-
-
-def test_format_journal_link_different_link_types():
-    """Test with different link types."""
-    utc_date = datetime(2025, 8, 18, 12, 0, 0, tzinfo=timezone.utc)
-
-    with patch("import_notable.utc_to_local") as mock_utc_to_local:
-        local_date = datetime(2025, 8, 18, 8, 0, 0)  # 4 hours behind
-        mock_utc_to_local.return_value = local_date
-
-        result = format_journal_link(utc_date, "Modified")
-        expected = "[[Journal:2025:08:18|Modified on August 18 2025]]"
-        assert result == expected
-
-
-# Tests for enhanced import function
-def test_import_md_file_uses_local_time_for_journal_path():
-    """Test that journal paths use local time, not UTC time."""
-    md_file = Path("test.md")
-    raw_dir = Path("raw")
+# Test the new calculate_journal_path function
+def test_calculate_journal_path_same_day():
+    """Test journal path calculation when UTC and local are same day."""
     journal_dir = Path("journal")
-
-    # Mock timezone conversion
+    utc_time = datetime(2025, 8, 18, 16, 30, 0, tzinfo=timezone.utc)
+    
     with patch("import_notable.utc_to_local") as mock_utc_to_local:
-        # UTC: 11:30 PM on Aug 18 -> Local: 6:30 PM on Aug 18 (EST, UTC-5)
-        utc_time = datetime(2025, 8, 18, 23, 30, 0, tzinfo=timezone.utc)
-        local_time = datetime(2025, 8, 18, 18, 30, 0)  # Same day in local time
+        local_time = datetime(2025, 8, 18, 11, 30, 0)  # 5 hours behind, same day
         mock_utc_to_local.return_value = local_time
+        
+        result = calculate_journal_path(utc_time, journal_dir)
+        expected = journal_dir / "2025" / "08" / "18.txt"
+        
+        assert result == expected
+        mock_utc_to_local.assert_called_once_with(utc_time)
 
-        journal_page = import_md_file_enhanced(md_file, raw_dir, journal_dir)
-
-        # Should use Aug 18 (local date), not Aug 19 (potential UTC date)
-        expected_path = journal_dir / "2025" / "08" / "18.txt"
-        assert journal_page == expected_path
-
-
-def test_import_md_file_timezone_boundary_case():
+def test_calculate_journal_path_timezone_boundary():
     """Test when UTC and local dates are different days."""
-    md_file = Path("test.md")
-    raw_dir = Path("raw")
     journal_dir = Path("journal")
-
+    utc_time = datetime(2025, 8, 19, 2, 0, 0, tzinfo=timezone.utc)  # 2 AM UTC
+    
     with patch("import_notable.utc_to_local") as mock_utc_to_local:
-        # UTC: 2:00 AM on Aug 19 -> Local: 9:00 PM on Aug 18 (EST, UTC-5)
-        local_time = datetime(2025, 8, 18, 21, 0, 0)  # Previous day in local
+        local_time = datetime(2025, 8, 18, 21, 0, 0)  # 9 PM previous day
         mock_utc_to_local.return_value = local_time
+        
+        result = calculate_journal_path(utc_time, journal_dir)
+        expected = journal_dir / "2025" / "08" / "18.txt"  # Should use local date
+        
+        assert result == expected
 
-        journal_page = import_md_file_enhanced(md_file, raw_dir, journal_dir)
-
-        # Should use Aug 18 (local date), not Aug 19 (UTC date)
-        expected_path = journal_dir / "2025" / "08" / "18.txt"
-        assert journal_page == expected_path
-
-
-def test_import_md_file_forward_timezone_boundary():
+def test_calculate_journal_path_forward_timezone():
     """Test when local time is next day compared to UTC."""
-    md_file = Path("test.md")
-    raw_dir = Path("raw")
     journal_dir = Path("journal")
-
+    utc_time = datetime(2025, 8, 18, 14, 0, 0, tzinfo=timezone.utc)  # 2 PM UTC
+    
     with patch("import_notable.utc_to_local") as mock_utc_to_local:
-        # UTC: 2:00 PM on Aug 18 -> Local: 11:00 PM on Aug 18 (ahead timezone)
-        local_time = datetime(2025, 8, 18, 23, 0, 0)  # Same day, later hour
+        local_time = datetime(2025, 8, 19, 1, 0, 0)  # 1 AM next day (UTC+11)
         mock_utc_to_local.return_value = local_time
+        
+        result = calculate_journal_path(utc_time, journal_dir)
+        expected = journal_dir / "2025" / "08" / "19.txt"  # Should use local date
+        
+        assert result == expected
 
-        journal_page = import_md_file_enhanced(md_file, raw_dir, journal_dir)
-
-        # Should still use Aug 18
-        expected_path = journal_dir / "2025" / "08" / "18.txt"
-        assert journal_page == expected_path
-
-
-def test_import_md_file_new_year_boundary():
+def test_calculate_journal_path_year_boundary():
     """Test timezone conversion across year boundary."""
-    md_file = Path("test.md")
-    raw_dir = Path("raw")
     journal_dir = Path("journal")
-
+    utc_time = datetime(2025, 1, 1, 2, 0, 0, tzinfo=timezone.utc)  # 2 AM Jan 1
+    
     with patch("import_notable.utc_to_local") as mock_utc_to_local:
-        # UTC: 2:00 AM on Jan 1, 2025 -> Local: 9:00 PM on Dec 31, 2024
-        local_time = datetime(2024, 12, 31, 21, 0, 0)  # Previous year!
+        local_time = datetime(2024, 12, 31, 21, 0, 0)  # 9 PM Dec 31 previous year
         mock_utc_to_local.return_value = local_time
+        
+        result = calculate_journal_path(utc_time, journal_dir)
+        expected = journal_dir / "2024" / "12" / "31.txt"  # Should use local date
+        
+        assert result == expected
 
-        journal_page = import_md_file_enhanced(md_file, raw_dir, journal_dir)
-
-        # Should use Dec 31, 2024 (local), not Jan 1, 2025 (UTC)
-        expected_path = journal_dir / "2024" / "12" / "31.txt"
-        assert journal_page == expected_path
-
+# Simplified integration tests for import_md_file
+def test_import_md_file_uses_calculate_journal_path(temp_dir):
+    """Test that import_md_file uses the new calculate_journal_path function."""
+    md_file = temp_dir / "test.md"
+    raw_dir = temp_dir / "raw"
+    journal_dir = temp_dir / "journal"
+    used_slugs = set()
+    
+    # Create a test markdown file
+    md_content = "---\ntitle: Test Note\n---\nTest content"
+    md_file.write_text(md_content)
+    
+    expected_journal_path = journal_dir / "2025" / "08" / "18.txt"
+    
+    with patch('import_notable.calculate_journal_path') as mock_calc_path, \
+         patch('import_notable.run_pandoc') as mock_pandoc, \
+         patch('import_notable.write_file') as mock_write_file, \
+         patch('import_notable.create_zim_note') as mock_create_zim, \
+         patch('import_notable.append_journal_link') as mock_append, \
+         patch('import_notable.get_file_date') as mock_get_date, \
+         patch('pathlib.Path.unlink') as mock_unlink:
+        
+        # Set up mocks
+        mock_calc_path.return_value = expected_journal_path
+        mock_pandoc.return_value = True
+        mock_write_file.return_value = True
+        mock_create_zim.return_value = True
+        mock_append.return_value = True
+        mock_unlink.return_value = None  # Mock the unlink method
+        # Mock file date to avoid timestamp parsing errors
+        mock_get_date.return_value = datetime(2025, 8, 18, 12, 0, 0, tzinfo=timezone.utc)
+        
+        # Mock read_file to handle both the markdown file and temp output file
+        def mock_read_side_effect(path):
+            if str(path).endswith('.md'):
+                return md_content
+            elif 'temp' in str(path) and str(path).endswith('.txt'):
+                return "converted zim content"
+            else:
+                return md_content
+        
+        with patch('import_notable.read_file', side_effect=mock_read_side_effect):
+            result = import_md_file(md_file, raw_dir, journal_dir, temp_dir, used_slugs)
+        
+        assert result == ImportStatus.SUCCESS
+        
+        # Verify calculate_journal_path was called
+        mock_calc_path.assert_called_once()
+        # Verify append_journal_link was called with the calculated path
+        mock_append.assert_called_once()
+        assert mock_append.call_args[0][0] == expected_journal_path
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

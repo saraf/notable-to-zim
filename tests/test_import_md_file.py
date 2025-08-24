@@ -85,7 +85,7 @@ This is the content.
     ):
 
         result = import_md_file(
-            sample_md, raw_store, journal_root, None, temp_dir, used_slugs
+            sample_md, raw_store, journal_root, temp_dir, used_slugs
         )
         assert result == ImportStatus.SUCCESS
 
@@ -141,7 +141,7 @@ Content without dates.
     ):
 
         result = import_md_file(
-            sample_md, raw_store, journal_root, None, temp_dir, used_slugs
+            sample_md, raw_store, journal_root, temp_dir, used_slugs
         )
         assert result == ImportStatus.SUCCESS
 
@@ -199,7 +199,7 @@ Mixed date sources.
     ):
 
         result = import_md_file(
-            sample_md, raw_store, journal_root, None, temp_dir, used_slugs
+            sample_md, raw_store, journal_root, temp_dir, used_slugs
         )
         assert result == ImportStatus.SUCCESS
 
@@ -256,7 +256,7 @@ Invalid metadata dates.
     ):
 
         result = import_md_file(
-            sample_md, raw_store, journal_root, None, temp_dir, used_slugs
+            sample_md, raw_store, journal_root, temp_dir, used_slugs
         )
         assert result == ImportStatus.SUCCESS
 
