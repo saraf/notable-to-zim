@@ -1,37 +1,12 @@
 #!/usr/bin/env python3
 """
-import_notable.py - VERSION v1.9.15.
+import_notable.py - VERSION v2.0.
 
 Import Notable Markdown notes into a Zim Desktop Wiki notebook,
 creating raw AI notes with proper Zim metadata, and appending
 links to the Journal pages in chronological order under a specified section.
 
 Part of the Notable-to-Zim project.
-
-CHANGES IN v1.9.15:
-- Fixed tags placement in create_zim_note to append tags at the end of the content.
-- Fixed duplicate titles in Zim notes by improving remove_duplicate_heading regex
-  to handle quotes and special characters in Pandoc zimwiki output.
-- Updated test_create_zim_note to verify tags at the end of the note.
-- Updated test_remove_duplicate_heading to test titles with quotes and
-  Pandoc-style headings.
-- Kept note_path fix, journal title format 'Tuesday DD Mon YYYY',
-  section_title='AI Notes', and [Errno 2] fix from v1.9.14 and earlier.
-
-CHANGES IN v1.9.14:
-- Fixed NameError in import_md_file by replacing incorrect 'note_path' with
-  'note_file' in create_zim_note call.
-- Updated test_import_md_file to include a real create_zim_note call to catch variable
-  errors.
-
-CHANGES IN v1.9.13:
-- Fixed journal page titles to use format 'Tuesday DD Mon YYYY'
-  (e.g., 'Tuesday 18 Aug 2025')
-  instead of 'Journal DD'.
-- Added format_journal_title helper to parse date from page_path or journal_date.
-- Updated create_journal_page and append_journal_link to use formatted titles.
-- Updated import_md_file to pass journal_ts to append_journal_link for title formatting.
-- Updated tests to verify correct journal page titles.
 
 See CHANGELOG.md for historical changes (v1.8–v1.9.9).
 Dependencies: python-dateutil, pyyaml==6.0.1, pandoc
