@@ -25,7 +25,7 @@ build/
 *.sublime-project
 *.sublime-workspace
 .idea/
-.vscode/
+#.vscode/
 
 # Zim and Notable directories (avoid committing user data)
 notable/

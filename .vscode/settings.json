@@ -1,0 +1,62 @@
+{
+    "python.pythonPath": "./venv/bin/python.exe",
+    "python.defaultInterpreterPath": "./venv/bin/python.exe",
+    // Black Formatter Settings
+    "python.formatting.provider": "black",
+    "python.formatting.blackPath": "./venv/bin/black",
+    "python.formatting.blackArgs": [
+        "--line-length=88",
+        "--target-version=py312"
+    ],
+    // Format on save
+    "editor.formatOnSave": true,
+    "editor.formatOnType": false,
+    "editor.formatOnPaste": true,
+    // Flake8 Linting Settings
+    "python.linting.enabled": true,
+    "python.linting.flake8Enabled": true,
+    "python.linting.flake8Path": "./venv/bin/flake8",
+    "python.linting.flake8Args": [
+        "--max-line-length=88",
+        "--extend-ignore=E203,W503",
+        "--select=E,W,F"
+    ],
+    // Disable other linters
+    "python.linting.pylintEnabled": false,
+    "python.linting.pycodestyleEnabled": false,
+    "python.linting.pyflakesEnabled": false,
+    // Testing
+    "python.testing.pytestEnabled": true,
+    "python.testing.pytestArgs": [
+        "tests/"
+    ],
+    "python.testing.unittestEnabled": false,
+    // Python-specific editor settings
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+        },
+        "editor.rulers": [
+            88
+        ]
+    },
+    // General settings
+    "python.analysis.extraPaths": [
+        "./"
+    ],
+    "python.analysis.autoSearchPaths": true,
+    "python.terminal.activateEnvironment": true,
+    // File associations
+    "files.associations": {
+        "*.py": "python"
+    },
+    "python-envs.pythonProjects": [
+        {
+            "path": "",
+            "envManager": "ms-python.python:venv",
+            "packageManager": "ms-python.python:pip"
+        }
+    ]
+}
