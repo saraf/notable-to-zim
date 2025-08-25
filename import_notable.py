@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-import_notable.py - VERSION v1.9.15
+import_notable.py - VERSION v1.9.15.
 
 Import Notable Markdown notes into a Zim Desktop Wiki notebook,
 creating raw AI notes with proper Zim metadata, and appending
@@ -36,31 +36,51 @@ CHANGES IN v1.9.13:
 See CHANGELOG.md for historical changes (v1.8–v1.9.9).
 Dependencies: python-dateutil, pyyaml==6.0.1, pandoc
 """
-
 # ------------------------ Imports ------------------------
+# Standard Library Imports
 import argparse
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Optional, Tuple, List, Dict, Any
-from enum import Enum
-import yaml
 import unicodedata
+from datetime import datetime, timezone
+from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+# Third-party Imports
 from dateutil import parser as dateutil_parser
 
+import yaml
+
+
+# Local Application/Library-specific Imports
+# No local imports in this section based on the linting errors
 
 # ------------------------ Constants ------------------------
+
+
 class ImportStatus(Enum):
+    """Status of the note import process.
+
+    Args:
+        Enum (_type_): _description_
+    """
+
     SUCCESS = "SUCCESS"
     SKIPPED = "SKIPPED"
     ERROR = "ERROR"
 
 
 class LogLevel(Enum):
+    """Log levels for the application.
+
+    Args:
+        Enum (_type_): _description_
+    """
+
     DEBUG = 1
     INFO = 2
     WARNING = 3
@@ -312,8 +332,11 @@ def append_journal_link(
     journal_date: datetime = None,
     section_title: str = "AI Notes",
 ) -> bool:
-    """Append a note link to a journal page under a specified section,
-    avoiding duplicates."""
+    """
+    Append a note link to a journal page under a specified section.
+
+    While avoiding duplicates.
+    """
     section_header = f"===== {section_title} ====="
     link_line = f"* [[{link}|{title}]]\n"
     title = format_journal_title(page_path=page_path, journal_date=journal_date)
@@ -349,7 +372,9 @@ def append_journal_link(
 
 def create_tag_string_for_zim(tags: List[str]) -> str:
     """
-    Build Zim tag string: underscores replace invalid chars;
+    Build Zim tag string.
+
+    underscores replace invalid chars;
     slashes keep only last part;
     empty tags ignored.
     Returns '@tag1 @tag2 ...' or ''.
@@ -394,7 +419,9 @@ def create_zim_note(
     modified_date: Optional[datetime] = None,
 ) -> bool:
     """
-    Create a Zim note with proper formatting, tags at the end, and
+    Create a Zim note.
+
+    With proper formatting, tags at the end, and
     optional journal links.
 
     Args:
@@ -431,15 +458,19 @@ def create_zim_note(
 
 
 def remove_duplicate_heading(content: str, title: str, slug: str) -> str:
-    """Remove duplicate heading if it matches title or slug,
-    handling special characters."""
+    """
+    Remove duplicate heading from content.
 
+    If it matches title or slug, handling special characters.
+    """
     # Normalize title and slug, preserving quotes and apostrophes
     title_clean = title.strip()
     slug_clean = slug.replace("_", " ").strip()
+
     # Escape special regex characters, but keep quotes and apostrophes
     title_escaped = re.escape(title_clean).replace(r"\'", "'")
     slug_escaped = re.escape(slug_clean).replace(r"\'", "'")
+
     # Match Zim Wiki level 1 heading (======) with flexible whitespace and case
     heading_pattern = re.compile(
         r"^======\s*({}|{})\s*======\s*\n".format(title_escaped, slug_escaped),
@@ -449,8 +480,10 @@ def remove_duplicate_heading(content: str, title: str, slug: str) -> str:
 
 
 def parse_timestamp(timestamp: Any) -> Optional[datetime]:
-    """Parse ISO 8601 timestamp or datetime object from YAML,
-    preserving UTC timezone."""
+    """Parse ISO 8601 timestamp or datetime object.
+
+    As read in from YAML, while preserving UTC timezone.
+    """
     if isinstance(timestamp, datetime):
         if timestamp.tzinfo is None:
             return timestamp.replace(tzinfo=timezone.utc)

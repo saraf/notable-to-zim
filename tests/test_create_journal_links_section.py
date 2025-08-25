@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""
-Test for create_journal_links_section function - Step 2 of TDD implementation
-"""
+"""Test for create_journal_links_section function."""
 
-import pytest
+# Standard Library Imports
 from datetime import datetime, timezone
+
+# Local Application/Library specific imports
 from import_notable import create_journal_links_section
+
+# Third-party Imports
+import pytest
 
 
 def test_create_journal_links_section_both_dates():
@@ -45,7 +48,10 @@ def test_create_journal_links_section_modified_only():
 
 
 def test_create_journal_links_section_same_dates():
-    """Test creating journal links section when created and modified dates are identical."""
+    """Test creating journal links section.
+
+    When created and modified dates are identical.
+    """
     same_date = datetime(2025, 8, 18, 11, 21, 28, tzinfo=timezone.utc)
 
     result = create_journal_links_section(same_date, same_date)

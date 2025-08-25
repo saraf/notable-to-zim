@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""
-Test for format_journal_link function - Step 1 of TDD implementation
-"""
-
-import pytest
+"""Test for format_journal_link function."""
+# Standard Library Imports
 from datetime import datetime, timezone
+
+# Local Application/Library-specific Imports
 from import_notable import format_journal_link
+
+# Third-party Imports
+import pytest
 
 
 # -------------- Test Cases for format_journal_link Function --------

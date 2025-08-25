@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""
-Test for enhanced import_md_file function - Step 4 of TDD implementation
-"""
+"""Test for enhanced import_md_file function."""
 
-import pytest
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import patch, MagicMock, mock_open
-from import_notable import import_md_file, ImportStatus
+from unittest.mock import patch
+
+from import_notable import ImportStatus, import_md_file
+
+import pytest
 
 
 @pytest.fixture
@@ -91,7 +91,7 @@ This is the content.
 
 
 def test_import_md_file_without_metadata_dates(sample_md, zim_dirs):
-    """Test importing a markdown file without dates in metadata (fallback to file dates)."""
+    """Importing a markdown file without dates in metadata (fallback: file dates)."""
     raw_store, journal_root, temp_dir = zim_dirs
     used_slugs = set()
 
@@ -264,7 +264,7 @@ Invalid metadata dates.
 def test_import_md_file_backward_compatibility(sample_md, zim_dirs):
     """Test that existing functionality still works unchanged."""
     raw_store, journal_root, temp_dir = zim_dirs
-    used_slugs = set()
+    # used_slugs = set()
 
     md_content = """---
 title: Test Note

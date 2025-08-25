@@ -11,7 +11,7 @@
     // Format on save
     "editor.formatOnSave": true,
     "editor.formatOnType": false,
-    "editor.formatOnPaste": true,
+    "editor.formatOnPaste": false,
     // Flake8 Linting Settings
     "python.linting.enabled": true,
     "python.linting.flake8Enabled": true,

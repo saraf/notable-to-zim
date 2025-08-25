@@ -1,40 +1,43 @@
 #!/usr/bin/env python3
-"""
-Fixed test cases for import_notable.py
-"""
+"""Fixed test cases for import_notable.py."""
 
-import pytest
-from unittest.mock import patch
-import tempfile
-from pathlib import Path
-from datetime import datetime, timezone
+# Standard Library Imports
 import os
 import subprocess
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+from unittest.mock import patch
+
+# Local application/library imports
 from import_notable import (
     ImportStatus,
-    set_log_file,
-    set_log_level,
-    log_message,
-    log_error,
-    log_warning,
-    slugify,
+    append_file,
+    append_journal_link,
+    check_pandoc,
+    create_journal_page,
+    create_zim_note,
     ensure_dir,
+    get_file_date,
+    import_md_file,
+    log_error,
+    log_message,
+    log_warning,
+    needs_update,
+    parse_timestamp,
     parse_yaml_front_matter,
     read_file,
-    write_file,
-    append_file,
-    check_pandoc,
-    run_pandoc,
-    zim_header,
-    create_journal_page,
-    append_journal_link,
-    create_zim_note,
     remove_duplicate_heading,
-    parse_timestamp,
-    get_file_date,
-    needs_update,
-    import_md_file,
+    run_pandoc,
+    set_log_file,
+    set_log_level,
+    slugify,
+    write_file,
+    zim_header,
 )
+
+# Third-party imports
+import pytest
 
 
 @pytest.fixture
@@ -386,3 +389,7 @@ def test_import_md_file(sample_md, zim_dir, temp_dir):
             sample_md, raw_store, journal_root, temp_dir, used_slugs
         )
         assert result == ImportStatus.ERROR
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

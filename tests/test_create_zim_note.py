@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""
-Test for enhanced create_zim_note function - Step 3 of TDD implementation
-"""
+"""Test for enhanced create_zim_note function - Step 3 of TDD implementation."""
 
-import pytest
+# Standard Library Imports
 from datetime import datetime, timezone
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
+# Local application/library imports
 from import_notable import create_zim_note
+
+# Third-party imports
+import pytest
 
 
 @pytest.fixture
@@ -31,7 +33,8 @@ def test_create_zim_note_with_journal_links(temp_note_path):
         "import_notable.create_tag_string_for_zim", return_value="@tag1 @tag2"
     ) as mock_tags, patch(
         "import_notable.zim_header",
-        return_value="Content-Type: text/x-zim-wiki\nWiki-Format: zim 0.6\n\n====== Test Note ======\n",
+        return_value="Content-Type: text/x-zim-wiki\nWiki-Format: zim 0.6"
+        "\n\n====== Test Note ======\n",
     ) as mock_header, patch(
         "import_notable.write_file", return_value=True
     ) as mock_write:
@@ -144,7 +147,7 @@ def test_create_zim_note_with_same_dates(temp_note_path):
 
 
 def test_create_zim_note_content_structure(temp_note_path):
-    """Test that content is structured correctly: header, content, journal links, tags."""
+    """Test that content is structured right: header, content, journal links, tags."""
     title = "Test Note"
     content = "This is test content."
     tags = ["tag1", "tag2"]
@@ -160,6 +163,7 @@ def test_create_zim_note_content_structure(temp_note_path):
         result = create_zim_note(
             temp_note_path, title, content, tags, created, modified
         )
+        assert result is True
 
         written_content = mock_write.call_args[0][1]
 
