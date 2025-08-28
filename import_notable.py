@@ -421,13 +421,7 @@ def create_zim_note(
 
     # Assemble the full content
     header = zim_header(title)
-    full_content = f"{header}\n{content}{journal_links}"
-
-    # Add tags at the end
-    if tags_str:
-        full_content += f"\n{tags_str}\n"
-    else:
-        full_content += "\n"
+    full_content = f"{header}\n{tags_str}\n{journal_links}\n{content}"
 
     return write_file(note_path, full_content)
 

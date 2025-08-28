@@ -52,10 +52,10 @@ def test_create_zim_note_with_journal_links(temp_note_path):
         # Verify all components are present
         assert "Content-Type: text/x-zim-wiki" in written_content
         assert "====== Test Note ======" in written_content
-        assert "This is test content." in written_content
+        assert "@tag1 @tag2" in written_content
         assert "[[Journal:2025:08:18|Created on August 18 2025]]" in written_content
         assert "[[Journal:2025:08:20|Modified on August 20 2025]]" in written_content
-        assert "@tag1 @tag2" in written_content
+        assert "This is test content." in written_content
 
         # Verify helper functions were called correctly
         mock_remove.assert_called_once_with(content, title, temp_note_path.stem)
@@ -147,7 +147,7 @@ def test_create_zim_note_with_same_dates(temp_note_path):
 
 
 def test_create_zim_note_content_structure(temp_note_path):
-    """Test that content is structured right: header, content, journal links, tags."""
+    """Test that content is structured right: header, tags, journal links, content."""
     title = "Test Note"
     content = "This is test content."
     tags = ["tag1", "tag2"]
@@ -180,8 +180,8 @@ def test_create_zim_note_content_structure(temp_note_path):
         )
         tags_idx = next(i for i, line in enumerate(lines) if "@tag1 @tag2" in line)
 
-        # Verify order: header -> content -> journal links -> tags
-        assert header_idx < content_idx < journal_idx < tags_idx
+        # Verify order: header -> tags -> journal links -> content
+        assert header_idx < tags_idx < journal_idx < content_idx
 
 
 def test_create_zim_note_write_failure(temp_note_path):
