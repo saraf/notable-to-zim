@@ -261,20 +261,149 @@ Invalid metadata dates.
         assert result == ImportStatus.SUCCESS
 
 
-def test_import_md_file_backward_compatibility(sample_md, zim_dirs):
-    """Test that existing functionality still works unchanged."""
+def test_import_md_file_creates_dual_journal_entries(sample_md, zim_dirs):
+    """Test that importing creates journal entries for BOTH created AND modified dates when different."""
     raw_store, journal_root, temp_dir = zim_dirs
-    # used_slugs = set()
+    used_slugs = set()
 
+    # Mock file content with different created/modified dates
     md_content = """---
-title: Test Note
-tags: [test]
+title: Aalhad Saraf - profile
+tags: [agri-iot]
+created: '2025-05-16T09:45:42.464Z'
+modified: '2025-05-19T08:05:07.178Z'
 ---
-# Test Note
-Backward compatibility test.
+# Aalhad Saraf - profile
+This is the profile content.
 """
 
     def mock_read_file(path):
-        return md_content if path == sample_md else "Backward compatibility test."
+        if path == sample_md:
+            return md_content
+        elif "aalhad_saraf___profile.txt" in str(path):
+            return "This is the profile content."
+        return "Content"
 
-    # Track calls to create_zim_note to ensure
+    def mock_unlink(self):
+        if self.exists():
+            os.unlink(self)
+
+    # Track calls to append_journal_link to verify both dates are processed
+    journal_calls = []
+
+    def mock_append_journal_link(
+        page_path, title, link, journal_date=None, section_title="AI Notes"
+    ):
+        # Capture the journal date for verification
+        journal_calls.append(
+            {
+                "page_path": page_path,
+                "title": title,
+                "link": link,
+                "journal_date": journal_date,
+                "section_title": section_title,
+            }
+        )
+        return True
+
+    with patch("import_notable.run_pandoc", return_value=True), patch(
+        "import_notable.read_file", side_effect=mock_read_file
+    ), patch("import_notable.write_file", return_value=True), patch(
+        "import_notable.create_zim_note", return_value=True
+    ), patch(
+        "import_notable.append_journal_link", side_effect=mock_append_journal_link
+    ), patch.object(
+        Path, "unlink", mock_unlink
+    ):
+
+        result = import_md_file(
+            sample_md, raw_store, journal_root, temp_dir, used_slugs
+        )
+
+        # Should succeed
+        assert result == ImportStatus.SUCCESS
+
+        # CRITICAL: Should create TWO journal entries, not one
+        assert (
+            len(journal_calls) == 2
+        ), f"Expected 2 journal entries, got {len(journal_calls)}"
+
+        # Verify the journal dates are correct
+        journal_dates = [call["journal_date"] for call in journal_calls]
+
+        # Should have entries for both May 16 and May 19, 2025
+        dates_found = set()
+        for date in journal_dates:
+            if date:
+                dates_found.add((date.year, date.month, date.day))
+
+        expected_dates = {(2025, 5, 16), (2025, 5, 19)}
+        assert (
+            dates_found == expected_dates
+        ), f"Expected dates {expected_dates}, got {dates_found}"
+
+        # Verify both entries point to the same note
+        links = [call["link"] for call in journal_calls]
+        assert all(link == "raw_ai_notes:aalhad_saraf_-_profile" for link in links)
+
+        # Verify both entries have the same title and section
+        titles = [call["title"] for call in journal_calls]
+        assert all(title == "Aalhad Saraf - profile" for title in titles)
+
+        sections = [call["section_title"] for call in journal_calls]
+        assert all(section == "AI Notes" for section in sections)
+
+
+def test_import_md_file_single_journal_entry_when_dates_same(sample_md, zim_dirs):
+    """Test that only one journal entry is created when created and modified dates are the same."""
+    raw_store, journal_root, temp_dir = zim_dirs
+    used_slugs = set()
+
+    # Mock file content with same created/modified dates
+    md_content = """---
+title: Test Note
+tags: [test]
+created: '2025-05-16T09:45:42.464Z'
+modified: '2025-05-16T09:45:42.464Z'
+---
+# Test Note
+Same dates test.
+"""
+
+    def mock_read_file(path):
+        if path == sample_md:
+            return md_content
+        return "Same dates test."
+
+    def mock_unlink(self):
+        if self.exists():
+            os.unlink(self)
+
+    journal_calls = []
+
+    def mock_append_journal_link(
+        page_path, title, link, journal_date=None, section_title="AI Notes"
+    ):
+        journal_calls.append({"journal_date": journal_date})
+        return True
+
+    with patch("import_notable.run_pandoc", return_value=True), patch(
+        "import_notable.read_file", side_effect=mock_read_file
+    ), patch("import_notable.write_file", return_value=True), patch(
+        "import_notable.create_zim_note", return_value=True
+    ), patch(
+        "import_notable.append_journal_link", side_effect=mock_append_journal_link
+    ), patch.object(
+        Path, "unlink", mock_unlink
+    ):
+
+        result = import_md_file(
+            sample_md, raw_store, journal_root, temp_dir, used_slugs
+        )
+
+        assert result == ImportStatus.SUCCESS
+
+        # Should create only ONE journal entry when dates are the same
+        assert (
+            len(journal_calls) == 1
+        ), f"Expected 1 journal entry when dates are same, got {len(journal_calls)}"

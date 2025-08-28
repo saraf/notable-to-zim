@@ -656,21 +656,61 @@ def import_md_file(
         log_error(f"Failed to create Zim note {note_file}")
         return ImportStatus.ERROR
 
-    # Existing journal link logic remains unchanged
-    journal_date_key = "created" if not note_file.exists() else "modified"
-    journal_ts = get_file_date(md_file, metadata, journal_date_key)
-    journal_page = calculate_journal_path(journal_ts, journal_dir)
+    # NEW: Create journal entries for both creation and modification dates
+    journal_entries_created = []
 
-    local_journal_ts = utc_to_local(journal_ts)
-    if not append_journal_link(
-        journal_page,
-        title,
-        f"raw_ai_notes:{slug}",
-        journal_date=local_journal_ts,
-        section_title="AI Notes",
-    ):
-        log_error(f"Failed to append journal link for {note_file.name}")
-        return ImportStatus.ERROR
+    # Always create a journal entry for the creation date if it exists
+    if created_date:
+        created_journal_page = calculate_journal_path(created_date, journal_dir)
+        local_created_date = utc_to_local(created_date)
+        if append_journal_link(
+            created_journal_page,
+            title,
+            f"raw_ai_notes:{slug}",
+            journal_date=local_created_date,
+            section_title="AI Notes",
+        ):
+            journal_entries_created.append(
+                f"created ({local_created_date.strftime('%Y-%m-%d')})"
+            )
+            log_debug(f"Added journal link for creation date: {created_journal_page}")
+        else:
+            log_error(
+                f"Failed to append journal link for creation date: {created_journal_page}"
+            )
+            return ImportStatus.ERROR
+
+    # Create a journal entry for the modification date only if:
+    # 1. It exists
+    # 2. It's different from the creation date (to avoid duplicates)
+    if modified_date and modified_date != created_date:
+        modified_journal_page = calculate_journal_path(modified_date, journal_dir)
+        local_modified_date = utc_to_local(modified_date)
+        if append_journal_link(
+            modified_journal_page,
+            title,
+            f"raw_ai_notes:{slug}",
+            journal_date=local_modified_date,
+            section_title="AI Notes",
+        ):
+            journal_entries_created.append(
+                f"modified ({local_modified_date.strftime('%Y-%m-%d')})"
+            )
+            log_debug(
+                f"Added journal link for modification date: {modified_journal_page}"
+            )
+        else:
+            log_error(
+                f"Failed to append journal link for modification date: {modified_journal_page}"
+            )
+            return ImportStatus.ERROR
+
+    # Log summary of journal entries created
+    if journal_entries_created:
+        log_message(
+            f"Created journal entries for {note_file.name}: {', '.join(journal_entries_created)}",
+            "INFO",
+        )
 
     return ImportStatus.SUCCESS
 
